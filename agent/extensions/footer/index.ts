@@ -7,7 +7,7 @@ import { formatTokens, formatCost } from "./format.js";
 
 // Un trozo del footer. `drop` = orden de eliminación cuando falta espacio
 // (menor = se elimina antes; 0 = nunca se elimina). `side` = izquierda o derecha.
-interface Part {
+export interface Part {
   text: string;
   side: "l" | "r";
   drop: number;
@@ -53,7 +53,7 @@ function collectUsage(ctx: ExtensionContext): Usage {
 }
 
 /** Barra de 10 caracteres coloreada por cuánto contexto se ha usado. */
-function contextBar(theme: Theme, pct: number): string {
+export function contextBar(theme: Theme, pct: number): string {
   const width = 10;
   const filled = Math.max(0, Math.min(width, Math.round((pct / 100) * width)));
   const token = pct >= 90 ? "error" : pct >= 70 ? "warning" : "success";
@@ -74,7 +74,7 @@ function thinkingColor(level: string): Parameters<Theme["fg"]>[0] {
 }
 
 /** Ruta absoluta abreviada con ~ para el home. */
-function formatPath(cwd: string): string {
+export function formatPath(cwd: string): string {
   const home = process.env.HOME ?? "";
   return home && cwd.startsWith(home) ? "~" + cwd.slice(home.length) : cwd;
 }
@@ -129,7 +129,7 @@ function buildParts(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branc
 }
 
 /** Ancho que ocupan varias partes unidas por separadores de 2 espacios. */
-function groupWidth(parts: Part[]): number {
+export function groupWidth(parts: Part[]): number {
   if (parts.length === 0) return 0;
   return parts.reduce((w, p) => w + visibleWidth(p.text), 0) + 2 * (parts.length - 1);
 }
@@ -142,7 +142,7 @@ function groupWidth(parts: Part[]): number {
 const MARGIN_L = 1; // margen izquierdo
 const MARGIN_R = 2; // margen derecho
 
-function compose(width: number, parts: Part[]): string {
+export function compose(width: number, parts: Part[]): string {
   const active = parts.filter((p) => p.text);
   const sep = "  ";
 

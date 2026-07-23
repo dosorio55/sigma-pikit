@@ -7,7 +7,6 @@ La suma de mis piezas, separadas para poder instalar y cambiar solo lo que quier
 
 | Extensión | Qué hace |
 |-----------|----------|
-| `hello`   | El "hola mundo": dibuja un footer de una línea. Base para aprender. |
 | `footer`  | Footer de dos líneas: ruta del proyecto, modelo, rama, barra de contexto, tokens, thinking y coste. |
 
 ## Cómo funciona
@@ -34,3 +33,31 @@ Instalarla de forma permanente desde git (cuando esté publicada):
 ```bash
 pi install git:github.com/tu-usuario/sigma
 ```
+
+## Desarrollo y tests
+
+El proyecto usa **pnpm** (obligatorio: un `preinstall` bloquea npm/yarn).
+
+```bash
+pnpm install     # instala dependencias
+pnpm check       # tipos: tsc --noEmit
+pnpm test        # tests
+```
+
+Los tests corren con el runner nativo de Node (`node:test`) a través de
+[`tsx`](https://tsx.is), que ejecuta TypeScript directamente (resuelve los
+imports `.js` → `.ts`, cosa que Node por sí solo no hace). El script es:
+
+```json
+"test": "node --import tsx --test 'agent/extensions/**/*.test.ts'"
+```
+
+Los tests viven junto a cada extensión como `*.test.ts` (p. ej.
+`agent/extensions/footer/footer.test.ts`). Se centran en la lógica pura y fácil
+de romper —formateo de tokens/coste, umbrales de la barra de contexto y el
+armado del footer (`compose`)— y no en el cableado con el runtime de pi.
+
+Para añadir tests a otra extensión, crea un `*.test.ts` en su carpeta; el glob
+del script los recoge automáticamente. Exporta desde el `index.ts` solo los
+helpers puros que quieras probar.
+

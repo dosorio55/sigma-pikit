@@ -13,8 +13,11 @@
     "agent/extensions",
     "README.md"
   ],
+  "packageManager": "pnpm@11.15.1",
   "scripts": {
-    "check": "tsc --noEmit"
+    "preinstall": "npx only-allow pnpm",
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test 'agent/extensions/**/*.test.ts'"
   },
   "pi": {
     "extensions": [
@@ -22,15 +25,16 @@
     ]
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "@earendil-works/pi-ai": "*"
+    "@earendil-works/pi-tui": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.81.1",
     "@earendil-works/pi-coding-agent": "^0.81.1",
     "@earendil-works/pi-tui": "^0.81.1",
     "@types/node": "^25.6.2",
+    "tsx": "^4.23.1",
     "typescript": "^6.0.3"
   }
 }
