@@ -32,5 +32,5 @@ pi -ne -e ./agent/extensions/footer/index.ts
 Instalarla de forma permanente desde git (cuando esté publicada):
 
 ```bash
-pi install git:github.com/tu-usuario/sigma
+pi install git:github.com/dosorio55/sigma-pikit
 ```
