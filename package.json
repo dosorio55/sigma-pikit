@@ -1,0 +1,36 @@
+{
+  "name": "sigma",
+  "version": "0.0.1",
+  "description": "Mis propios plugins para el agente pi, separados para instalar solo lo que quiera.",
+  "license": "MIT",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension"
+  ],
+  "files": [
+    "agent/extensions",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "pi": {
+    "extensions": [
+      "./agent/extensions/*/index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@earendil-works/pi-ai": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^0.81.1",
+    "@earendil-works/pi-coding-agent": "^0.81.1",
+    "@earendil-works/pi-tui": "^0.81.1",
+    "@types/node": "^25.6.2",
+    "typescript": "^6.0.3"
+  }
+}
