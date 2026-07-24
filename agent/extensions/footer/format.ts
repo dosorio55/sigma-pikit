@@ -1,5 +1,3 @@
-// Helpers de formato puros (sin dependencias de pi). Fáciles de testear a ojo.
-
 /** 80900 -> "80.9k", 249000 -> "249k", 2_000_000 -> "2M". */
 export function formatTokens(n: number): string {
   if (n < 1000) return String(n);

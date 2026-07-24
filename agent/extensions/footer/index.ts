@@ -5,23 +5,11 @@ import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 
 import { formatTokens, formatCost } from "./format.js";
 
-// Un trozo del footer. `drop` = orden de eliminación cuando falta espacio
-// (menor = se elimina antes; 0 = nunca se elimina). `side` = izquierda o derecha.
 interface Part {
   text: string;
   side: "l" | "r";
   drop: number;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// footer — versión propia, de una sola fila. Imitación simplificada del footer
-// de pikit. Muestra:  π  modelo (proveedor)  ruta  rama*  [barra] tokens/max %  NIVEL  $coste
-//
-// Decisiones de diseño (a propósito distintas del original):
-//  · Sin registro de "segmentos": construimos la línea con funciones pequeñas.
-//  · Barra de contexto por umbrales de color (verde→ámbar→rojo), no degradado RGB.
-//  · La rama sale de footerData.getGitBranch(); solo el estado "sucio" usa git.
-// ─────────────────────────────────────────────────────────────────────────────
 
 interface Usage {
   cost: number;
@@ -46,7 +34,6 @@ function collectUsage(ctx: ExtensionContext): Usage {
     u.output += m.usage.output;
     u.cacheRead += m.usage.cacheRead;
     u.cacheWrite += m.usage.cacheWrite;
-    // El contexto "vivo" es el del último mensaje del asistente.
     u.lastContextTokens = m.usage.input + m.usage.output + m.usage.cacheRead + m.usage.cacheWrite;
   }
   return u;
@@ -87,20 +74,17 @@ function buildParts(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branc
   const dim = (t: string) => theme.fg("dim", t);
   const parts: Part[] = [];
 
-  // π + modelo (proveedor) — nunca se elimina
   const modelName = ctx.model?.name ?? ctx.model?.id ?? "no-model";
   let model = theme.fg("accent", "π ") + modelName;
   if (ctx.model?.provider) model += " " + dim(`(${ctx.model.provider})`);
   parts.push({ text: model, side: "l", drop: 0 });
 
-  // Rama de git (solo el nombre)
   if (branch) {
     parts.push({ text: theme.fg("success", branch), side: "l", drop: 40 });
   }
 
   const u = collectUsage(ctx);
 
-  // Barra de contexto (drop 20) + tokens/max/% (drop 50, casi siempre se queda)
   const window = ctx.model?.contextWindow ?? 0;
   if (window > 0) {
     const pct = (u.lastContextTokens / window) * 100;
@@ -109,20 +93,20 @@ function buildParts(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branc
     parts.push({ text: theme.fg("muted", label), side: "r", drop: 50 });
   }
 
-  // Desglose de tokens: ↑in ↓out Rcache (Wcache si hay) — drop 25
   const tok: string[] = [
     dim("↑") + theme.fg("muted", formatTokens(u.input)),
     dim("↓") + theme.fg("muted", formatTokens(u.output)),
   ];
-  if (u.cacheRead) tok.push(dim("R") + theme.fg("muted", formatTokens(u.cacheRead)));
-  if (u.cacheWrite) tok.push(dim("W") + theme.fg("muted", formatTokens(u.cacheWrite)));
+  const promptTokens = u.input + u.cacheRead + u.cacheWrite;
+  if (promptTokens > 0) {
+    const hit = (u.cacheRead / promptTokens) * 100;
+    tok.push(dim("⚡") + theme.fg("muted", `${hit.toFixed(0)}%`));
+  }
   parts.push({ text: tok.join(" "), side: "r", drop: 25 });
 
-  // Thinking level (drop 45)
   const level = pi.getThinkingLevel();
   parts.push({ text: theme.fg(thinkingColor(level), level.toUpperCase()), side: "r", drop: 45 });
 
-  // Coste — nunca se elimina
   parts.push({ text: dim("$") + theme.fg("muted", formatCost(u.cost)), side: "r", drop: 0 });
 
   return parts;
@@ -139,8 +123,8 @@ function groupWidth(parts: Part[]): number {
  * derecho, relleno en medio (space-between). Si no cabe, elimina partes por
  * prioridad hasta que quepa; como última red, recorta.
  */
-const MARGIN_L = 1; // margen izquierdo
-const MARGIN_R = 2; // margen derecho
+const MARGIN_L = 1;
+const MARGIN_R = 2;
 
 function compose(width: number, parts: Part[]): string {
   const active = parts.filter((p) => p.text);
@@ -149,7 +133,7 @@ function compose(width: number, parts: Part[]): string {
   const fits = () => {
     const l = groupWidth(active.filter((p) => p.side === "l"));
     const r = groupWidth(active.filter((p) => p.side === "r"));
-    return MARGIN_L + l + 1 + r + MARGIN_R <= width; // +1 mínimo entre grupos
+    return MARGIN_L + l + 1 + r + MARGIN_R <= width;
   };
 
   while (!fits()) {
@@ -166,13 +150,10 @@ function compose(width: number, parts: Part[]): string {
   const avail = Math.max(0, width - MARGIN_L - MARGIN_R);
   const rightW = visibleWidth(rightStr);
 
-  // Si ni el grupo derecho cabe solo, mostramos solo él (recortado): es el
-  // que contiene coste/thinking, lo más importante.
   if (rightW >= avail) {
     return " ".repeat(MARGIN_L) + truncateToWidth(rightStr, avail);
   }
 
-  // Recortamos el grupo IZQUIERDO (modelo/ruta) para preservar el derecho intacto.
   const finalLeft = truncateToWidth(leftStr, Math.max(0, avail - rightW - 1));
   const gap = Math.max(1, avail - visibleWidth(finalLeft) - rightW);
 
@@ -198,7 +179,6 @@ export default function footer(pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
 
     ctx.ui.setFooter((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
-      // Redibuja cuando pi detecta un cambio de rama.
       const unsub = footerData.onBranchChange(() => tui.requestRender());
 
       return {
