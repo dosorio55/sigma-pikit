@@ -9,6 +9,7 @@ La suma de mis piezas, separadas para poder instalar y cambiar solo lo que quier
 |-----------|----------|
 | `hello`   | El "hola mundo": dibuja un footer de una línea. Base para aprender. |
 | `footer`  | Footer de dos líneas: ruta del proyecto, modelo, rama, barra de contexto, tokens, thinking y coste. |
+| `wsl-clipboard-image` | Pega imágenes del portapapeles de Windows en el prompt con `Alt+V` (o el comando `wsl-paste-image`). Lee el portapapeles nativo vía `powershell.exe` y prueba varios formatos (PNG, fichero, bitmap), así que también funciona con el historial `Win+V`. Solo WSL. |
 
 ## Cómo funciona
 
