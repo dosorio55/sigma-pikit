@@ -1,36 +1,36 @@
 # sigma
 
-Σ — mi colección de plugins para el agente [pi](https://github.com/earendil-works).
-La suma de mis piezas, separadas para poder instalar y cambiar solo lo que quiera.
+Σ — my collection of plugins for the [pi](https://github.com/earendil-works) agent.
+The sum of my pieces, kept separate so I can install and change only what I want.
 
-## Extensiones
+## Extensions
 
-| Extensión | Qué hace |
-|-----------|----------|
-| `hello`   | El "hola mundo": dibuja un footer de una línea. Base para aprender. |
-| `footer`  | Footer de dos líneas: ruta del proyecto, modelo, rama, barra de contexto, tokens, thinking y coste. |
-| `wsl-clipboard-image` | Pega imágenes del portapapeles de Windows en el prompt con `Alt+V` (o el comando `wsl-paste-image`). Lee el portapapeles nativo vía `powershell.exe` y prueba varios formatos (PNG, fichero, bitmap), así que también funciona con el historial `Win+V`. Solo WSL. |
+| Extension | What it does | Idle cost |
+|-----------|--------------|-----------|
+| `hello`   | The "hello world": draws a one-line footer. A base for learning. | none |
+| `footer`  | Two-line footer: project path, model, branch, context bar, tokens, thinking level and cost. | none |
+| `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 
-## Cómo funciona
+## How it works
 
-`package.json` declara dónde están las extensiones:
+`package.json` declares where the extensions live:
 
 ```json
 "pi": { "extensions": ["./agent/extensions/*/index.ts"] }
 ```
 
-pi carga la función exportada por defecto en cada `index.ts`. Cada extensión se
-suscribe a eventos (`pi.on(...)`) y/o registra UI (`ctx.ui.setFooter(...)`).
+pi loads the default exported function from each `index.ts`. Each extension
+subscribes to events (`pi.on(...)`) and/or registers UI (`ctx.ui.setFooter(...)`).
 
-## Instalar / probar en local
+## Install / try locally
 
-Probar una extensión suelta sin instalar nada:
+Try a single extension without installing anything:
 
 ```bash
 pi -ne -e ./agent/extensions/footer/index.ts
 ```
 
-Instalarla de forma permanente desde git (cuando esté publicada):
+Install it permanently from git (once published):
 
 ```bash
 pi install git:github.com/dosorio55/sigma-pikit
