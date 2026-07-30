@@ -172,7 +172,8 @@ messages, tokens, and cost" — which is numbers without breakdown or visual.
 
 ## What changed in the build
 
-Three things, all found by reading the installed source rather than the docs.
+The implementation details below came from reading the installed source rather
+than relying on the public API notes alone.
 
 ### `ctx.getSystemPromptOptions()` exists
 
@@ -206,13 +207,19 @@ fallback now, because prefix matching alone is wrong in three ways:
   expands `imports` from host configs.
 
 So attribution goes through `mcp-cache.json` — the adapter's metadata cache,
-mapping each server to the tool names it registered. Exact, and prefix-mode
-independent. Prefixes remain as the fallback for servers the cache has never
-seen, longest first so `db` cannot steal from `db-metadata`.
+mapping each server to the tool names it registered. This is prefix-mode
+independent when ownership is unique; duplicate unprefixed names stay
+unattributed because current direct-tool selection, not cache order, decides
+which server registered one. Cached resources are converted through the
+adapter's `read_<resource>` naming rule before matching. Prefixes remain as the fallback
+for servers the cache has never seen, longest first so `db` cannot steal from
+`db-metadata`.
 
-Server *discovery* reads the JSON config sources and expands `imports` for the
-JSON host formats. Codex keeps its servers in TOML; parsing a second config
-language to label a row is not worth it.
+Server *discovery* reads the JSON config sources, the `--mcp-config` override,
+and expands `imports` for the JSON host formats. It also follows
+`hostConfigDiscovery: "on"`; OpenCode's global and project files are both read,
+as they are merged by the adapter. Codex keeps its servers in TOML; parsing a
+second config language to label a row is not worth it.
 
 What is deliberately not reproduced is the adapter's merge order, credential
 stripping and validation. That means the server list is "what we could
@@ -273,6 +280,12 @@ prompt string once as a whole and breaks the two slices out of it — skills via
 `base prompt`. Tool schemas are a separate top-level total, never added into the
 prompt figure.
 
-The remainder is clamped at zero: the whole and its slices are measured from
-different sources, and a formatting difference must not surface as a negative
-row.
+Context files are measured with the `<project_instructions path="…">` wrapper pi
+puts around them, so the slice matches what the prompt carries rather than the
+bare file. The `<project_context>` header and footer land in `base prompt`,
+which is what that row means.
+
+A negative remainder is not clamped into a plausible zero — see
+[Skills are conditional on the read tool](#skills-are-conditional-on-the-read-tool).
+It means the prompt in use is not the one these options describe, and the row
+says so.

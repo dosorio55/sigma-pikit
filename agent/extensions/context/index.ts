@@ -20,9 +20,12 @@ async function show(pi: ExtensionAPI, ctx: ExtensionCommandContext, expand: bool
 
   if (ctx.mode !== "tui") {
     // print and json modes have no notification channel, and a command that
-    // silently does nothing looks broken.
+    // silently does nothing looks broken. stderr, not stdout: in json mode
+    // stdout is a JSONL stream a client is parsing, and a bare line would
+    // corrupt it. (pi routes an extension's console.log to stderr in print mode
+    // anyway, so this only makes the destination explicit.)
     if (ctx.hasUI) ctx.ui.notify(renderPlain(report), "info");
-    else console.log(renderPlain(report));
+    else process.stderr.write(`${renderPlain(report)}\n`);
     return;
   }
 

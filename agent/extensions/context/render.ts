@@ -116,7 +116,10 @@ export function render(report: Report, theme: Theme, expand: boolean): string[] 
   lines.push(theme.fg("accent", theme.bold("Context")), "");
   const cells = grid(report, theme);
   if (cells.length > 0) {
-    lines.push(...cells, "", legend(theme, report.compactionEnabled), "");
+    // Past the compaction point the mark is a recoloured used cell, not a `┊`,
+    // so the legend must not promise a glyph that is no longer on the grid.
+    const passed = (report.sessionTokens ?? report.staticTokens) >= report.compactionAt;
+    lines.push(...cells, "", legend(theme, report.compactionEnabled && !passed), "");
   }
 
   const { systemPrompt } = report;
@@ -191,7 +194,7 @@ export function render(report: Report, theme: Theme, expand: boolean): string[] 
       "",
       theme.fg(
         "warning",
-        "Some MCP tools could not be traced to a server, so no server is listed as idle.",
+        "Some active MCP tools could not be traced to a server, so no additional server is listed as idle.",
       ),
     );
   }

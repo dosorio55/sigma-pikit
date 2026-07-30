@@ -49,11 +49,15 @@ decides when compaction triggers — a `/context` doing its own arithmetic would
 be confidently wrong about the one number it exists to predict.
 
 Tools are attributed to an MCP server through the adapter's own metadata cache
-(`mcp-cache.json`), which maps servers to the tool names they registered, and
-only then by rebuilding the adapter's name prefixes. The cache is exact and works
-even under `toolPrefix: none`, where there is no prefix left to match on. Server
-names are discovered from pi's JSON MCP configs and from `imports` for the JSON
-host formats; codex keeps its servers in TOML and is not parsed.
+(`mcp-cache.json`), which maps servers to the tool and resource names they
+registered, and only then by rebuilding the adapter's name prefixes. Cache
+matching works even under `toolPrefix: none`, where there is no prefix left to
+match on; if two servers claim the same unprefixed name, attribution stays
+unknown rather than depending on stale cache order. Server names are discovered from pi's MCP configs, a
+`--mcp-config` override, explicit `imports`, and host configs when
+`hostConfigDiscovery` is on. JSON sources are parsed as JSONC, comments and
+trailing commas included, because that is what the adapter accepts. Codex's
+TOML config is not parsed.
 
 Attribution is gated on the tool actually coming from the MCP adapter, so a
 server named `web` cannot capture some other extension's `web_search`. Anything

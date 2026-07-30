@@ -2,7 +2,7 @@ import { formatSkillsForPrompt, getAgentDir, SettingsManager } from "@earendil-w
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { dirname } from "node:path";
 
-import { GATEWAY_TOOL, readMcpInfo } from "./mcp.js";
+import { GATEWAY_TOOL, NO_MCP, readMcpInfo } from "./mcp.js";
 import { tokensOf } from "./tokens.js";
 
 type ToolInfo = ReturnType<ExtensionAPI["getAllTools"]>[number];
@@ -71,9 +71,12 @@ function extensionLabel(tool: ToolInfo): string {
   const anonymous = source === "local" || source === "auto" || source === "cli" || source === "inline";
 
   if (anonymous || !source) {
-    const path = tool.sourceInfo?.baseDir ?? tool.sourceInfo?.path;
+    // `path`, not `baseDir`: for auto-discovered extensions baseDir is the
+    // resolution root (the agent dir), so every extension under it would
+    // collapse into one row — the exact failure this function exists to avoid.
+    const path = tool.sourceInfo?.path ?? tool.sourceInfo?.baseDir;
     if (path) {
-      const dir = /\.(ts|js|mts|mjs|cts|cjs)$/.test(path) ? dirname(path) : path;
+      const dir = /\.[cm]?[jt]s$/.test(path) ? dirname(path) : path;
       const name = dir.split(/[\\/]/).filter(Boolean).at(-1);
       if (name) return `Extension · ${name}`;
     }
@@ -102,7 +105,7 @@ function groupLabel(
   if (source === "builtin") return { label: "Built-in tools" };
   if (source === "sdk") return { label: "SDK tools" };
 
-  if (mcp.isMcpTool(source)) {
+  if (mcp.isMcpTool(tool.sourceInfo)) {
     // The gateway is the whole of proxy-mode MCP: one schema standing in for
     // every server, which is why proxy mode is cheap. It is not a server.
     if (tool.name === GATEWAY_TOOL) return { label: "MCP gateway" };
@@ -160,9 +163,15 @@ export function collect(pi: ExtensionAPI, ctx: ExtensionCommandContext): Report 
   const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
   const compaction = compactionSettings(ctx);
 
-  const mcp = readMcpInfo(ctx.cwd);
   const activeNames = new Set(pi.getActiveTools());
   const all = pi.getAllTools();
+
+  // Without the adapter loaded there is no MCP anything, and the config walk
+  // would be a dozen file reads to discover that.
+  const mcpConfig = pi.getFlag("mcp-config");
+  const mcp = all.some((tool) => NO_MCP.isMcpTool(tool.sourceInfo))
+    ? readMcpInfo(ctx.cwd, typeof mcpConfig === "string" ? mcpConfig : undefined)
+    : NO_MCP;
 
   const activeGroups = new Map<string, Group>();
   const idleGroups = new Map<string, Group>();
@@ -172,11 +181,16 @@ export function collect(pi: ExtensionAPI, ctx: ExtensionCommandContext): Report 
 
   for (const tool of all) {
     const { label, server, unattributed } = groupLabel(tool, mcp);
-    if (unattributed) serversResolved = false;
 
     // A tool that is not active has no schema in the request. Its cost is zero,
     // whatever its metadata weighs on disk — so it is listed, never summed.
     const isActive = activeNames.has(tool.name);
+
+    // Only an *active* untraceable tool can be the reason a server looks free.
+    // An inactive one costs nothing wherever it belongs, so it is no reason to
+    // withhold the idle rows.
+    if (unattributed && isActive) serversResolved = false;
+
     const target = isActive ? activeGroups : idleGroups;
     const group = target.get(label) ?? { label, tokens: 0, tools: [] };
 
