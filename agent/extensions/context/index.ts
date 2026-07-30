@@ -19,7 +19,10 @@ async function show(pi: ExtensionAPI, ctx: ExtensionCommandContext, expand: bool
   const report = collect(pi, ctx);
 
   if (ctx.mode !== "tui") {
+    // print and json modes have no notification channel, and a command that
+    // silently does nothing looks broken.
     if (ctx.hasUI) ctx.ui.notify(renderPlain(report), "info");
+    else console.log(renderPlain(report));
     return;
   }
 

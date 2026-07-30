@@ -187,18 +187,38 @@ This removes the one piece of standing state the design conceded, and with it th
 The sensitivity warning still stands and is honoured: `contextFiles` carries full
 file contents, and only the path and a token count ever leave `collect()`.
 
-### MCP grouping needs `mcp.json`
+### MCP grouping: the cache first, prefixes second
 
 `pi.getAllTools()` returns a flat name plus `sourceInfo`; the server is folded
-into the name prefix by `pi-mcp-adapter` via `formatToolName`. So grouping by
-server means reading `mcp.json` and rebuilding the same prefixes, honouring
-`settings.toolPrefix` (`server` | `none` | `short` | `mcp`).
+into the name prefix by `pi-mcp-adapter` via `formatToolName`. The first attempt
+here rebuilt those prefixes from `mcp.json` and matched on them. That is the
+fallback now, because prefix matching alone is wrong in three ways:
 
-Longest prefix wins when matching, or with servers `db` and `db-metadata` a tool
-named `db_metadata_list` would be filed under the wrong one.
+- **It steals tools.** Matching runs on the name, so a server called `web`
+  captures an unrelated `web_search` from another extension. Attribution is now
+  gated on `sourceInfo.source` naming the adapter, and `builtin`/`sdk` are
+  checked first.
+- **It dies under `toolPrefix: none`.** No prefix, no match — and the old code
+  then listed every server as "costing nothing" while their schemas sat in the
+  request. That is the worst failure available to this plugin: confidently
+  backwards.
+- **One config file is not the config.** The adapter merges six JSON sources and
+  expands `imports` from host configs.
 
-Only the agent-dir config is read. A project-local server falls through to the
-extension grouping rather than being mislabelled.
+So attribution goes through `mcp-cache.json` — the adapter's metadata cache,
+mapping each server to the tool names it registered. Exact, and prefix-mode
+independent. Prefixes remain as the fallback for servers the cache has never
+seen, longest first so `db` cannot steal from `db-metadata`.
+
+Server *discovery* reads the JSON config sources and expands `imports` for the
+JSON host formats. Codex keeps its servers in TOML; parsing a second config
+language to label a row is not worth it.
+
+What is deliberately not reproduced is the adapter's merge order, credential
+stripping and validation. That means the server list is "what we could
+discover", never "what pi has" — which is why anything unattributable gets its
+own `MCP · server unknown` row at full cost, and why the presence of that row
+suppresses every idle-server claim.
 
 ### Proxy mode is the real "costs nothing" case
 
@@ -219,8 +239,30 @@ wrapped in a throwaway user message — the wrapper adds no characters of its ow
 
 Worth stating plainly: pi's estimate *is* `chars / 4`. Using the export is not
 about precision, it is about agreement with the code that triggers compaction.
-The `reserveTokens` and `compaction.enabled` reads follow pi's own precedence,
-project settings over global, defaulting from `DEFAULT_COMPACTION_SETTINGS`.
+
+### Settings: `SettingsManager`, not a file read
+
+`reserveTokens` and `compaction.enabled` looked like a two-file read. They are
+not: pi ignores a project's `settings.json` entirely until the project is
+trusted, so reading it directly draws the compaction mark using a number pi is
+not using — in the one view whose job is predicting that moment.
+
+`SettingsManager.create(cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() })`
+is pi's own resolution, trust rule and per-key merge included.
+
+### Skills are conditional on the read tool
+
+`buildSystemPrompt` appends the skills block only when `read` is active
+(`if (hasRead && skills.length > 0)`). Counting them unconditionally invents a
+row *and* shrinks `base prompt` by the same amount to keep the total — two wrong
+numbers from one assumption. `selectedTools` on the options says whether to
+count them.
+
+The subtraction can still fail honestly: an extension that rewrites the system
+prompt in `before_agent_start` leaves an override in place that
+`getSystemPromptOptions()` never described. When the slices no longer fit inside
+the whole, the row says the prompt was rewritten rather than clamping a negative
+into a plausible-looking zero.
 
 ### Double counting, avoided
 

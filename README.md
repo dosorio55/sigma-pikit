@@ -28,7 +28,8 @@ What it reports:
 - **System prompt**, split into the base prompt, skills and context files. Skills
   are measured with pi's own `formatSkillsForPrompt`, so the figure is the block
   that actually ships — skills marked `disable-model-invocation` correctly cost
-  nothing.
+  nothing, and since pi only includes the skills block while the `read` tool is
+  active, the row says so instead of inventing a cost when it is not.
 - **Tool schemas**, grouped by the thing you could switch off: an MCP server, an
   extension, the built-ins. Not by `sourceInfo.source` — "extension: 4.9k" names
   nothing you can act on.
@@ -38,21 +39,32 @@ What it reports:
   them, and the single `mcp` gateway is listed separately as what you do pay for.
 - **The compaction point.** pi compacts at `contextWindow - reserveTokens`
   (16384 by default), so the last ~16k of the window is not yours. A `┊` in the
-  grid marks where it fires, read from your `settings.json`.
+  grid marks where it fires. The setting is resolved through pi's own
+  `SettingsManager`, so an untrusted project's `.pi/settings.json` is ignored
+  here exactly as pi ignores it — otherwise the mark would point somewhere pi is
+  not going.
 
 Token counts come from pi's exported `estimateTokens`, the same function that
 decides when compaction triggers — a `/context` doing its own arithmetic would
 be confidently wrong about the one number it exists to predict.
 
-MCP servers are grouped by rebuilding the adapter's name prefixes from
-`~/.pi/agent/mcp.json`, honouring `settings.toolPrefix`. A project-local MCP
-config is not read, so its tools group under their extension instead of being
-mislabelled.
+Tools are attributed to an MCP server through the adapter's own metadata cache
+(`mcp-cache.json`), which maps servers to the tool names they registered, and
+only then by rebuilding the adapter's name prefixes. The cache is exact and works
+even under `toolPrefix: none`, where there is no prefix left to match on. Server
+names are discovered from pi's JSON MCP configs and from `imports` for the JSON
+host formats; codex keeps its servers in TOML and is not parsed.
+
+Attribution is gated on the tool actually coming from the MCP adapter, so a
+server named `web` cannot capture some other extension's `web_search`. Anything
+that cannot be traced lands in a **`MCP · server unknown`** row at its real cost,
+and while such a row exists no server is listed as idle — one of them may be the
+server paying for it.
 
 **Idle cost: none.** No watcher, no timer, no per-turn bookkeeping to keep a live
-figure warm — the footer is the live indicator, this is the on-demand X-ray.
-Everything is read when you run the command: two small JSON files and a walk over
-the tool list already in memory.
+figure warm — the footer is the live indicator, this is the on-demand X-ray. The
+only work is on invocation: a handful of small JSON reads and a walk over the
+tool list already in memory.
 
 ## How it works
 

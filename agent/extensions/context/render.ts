@@ -13,7 +13,7 @@ const USED = "⛁";
 const FREE = "⛶";
 const MARK = "┊";
 
-const LABEL_WIDTH = 26;
+const LABEL_WIDTH = 32;
 const VALUE_WIDTH = 7;
 
 interface Segment {
@@ -52,14 +52,17 @@ function grid(report: Report, theme: Theme): string[] {
     ? Math.min(CELLS - 1, Math.floor(report.compactionAt / perCell))
     : -1;
 
+  // Free cells are where the mark normally lands: the threshold sits ahead of
+  // what has been used.
   while (painted.length < CELLS) {
     const index = painted.length;
     painted.push(index === markAt ? theme.fg("error", MARK) : theme.fg("dim", FREE));
   }
-  // The mark falls inside used space only when the session is already past the
-  // compaction point, which the summary line reports in words anyway.
-  if (markAt >= 0 && !painted[markAt]?.includes(MARK)) {
-    painted[markAt] = theme.fg("error", MARK);
+  // Past the compaction point the mark falls inside used space. Recolour that
+  // cell rather than replacing it — overwriting the glyph would silently drop a
+  // cell's worth of usage from a picture whose whole job is showing usage.
+  if (markAt >= 0 && markAt < painted.length && !painted[markAt]?.includes(MARK)) {
+    painted[markAt] = theme.fg("error", USED);
   }
 
   const lines: string[] = [];
@@ -82,9 +85,20 @@ function legend(theme: Theme, withMark: boolean): string {
   return items.join("   ");
 }
 
+/**
+ * Keep the value column aligned. MCP tool names run long — the middle is the
+ * part that repeats, so the ends are what identify the tool.
+ */
+function fitLabel(label: string, width: number): string {
+  if (label.length <= width) return label.padEnd(width);
+  const keep = width - 1;
+  const head = Math.ceil(keep / 2);
+  return `${label.slice(0, head)}…${label.slice(label.length - (keep - head))}`;
+}
+
 function row(theme: Theme, label: string, tokens: number | null, detail = "", indent = 0): string {
   const pad = " ".repeat(indent);
-  const name = `${pad}${label}`.padEnd(LABEL_WIDTH);
+  const name = `${pad}${fitLabel(label, Math.max(1, LABEL_WIDTH - indent))}`;
   const value = (tokens === null ? "—" : formatTokens(tokens)).padStart(VALUE_WIDTH);
   const colored = tokens === 0 ? theme.fg("dim", value) : theme.fg("accent", value);
   const tail = detail ? `  ${theme.fg("dim", detail)}` : "";
@@ -107,11 +121,21 @@ export function render(report: Report, theme: Theme, expand: boolean): string[] 
 
   const { systemPrompt } = report;
   lines.push(row(theme, "System prompt", systemPrompt.total));
-  lines.push(row(theme, "base prompt", systemPrompt.base, "", 2));
-  if (systemPrompt.skillCount > 0) {
+  if (systemPrompt.baseUnknown) {
+    // The slices did not fit inside the whole, so the prompt in use is not the
+    // one these options describe — an extension has rewritten it. Say so; a
+    // clamped zero would read as a fact.
+    lines.push(row(theme, "base prompt", null, "prompt was rewritten by an extension", 2));
+  } else {
+    lines.push(row(theme, "base prompt", systemPrompt.base, "", 2));
+  }
+  if (systemPrompt.skillCount > 0 && systemPrompt.skillsInPrompt) {
     lines.push(
       row(theme, "skills", systemPrompt.skillsTokens, plural(systemPrompt.skillCount, "skill"), 2),
     );
+  } else if (systemPrompt.skillCount > 0) {
+    // pi only ships the skills block while the read tool is active.
+    lines.push(row(theme, "skills", 0, "not in prompt — read tool inactive", 2));
   }
   if (systemPrompt.contextFiles.length > 0) {
     lines.push(
@@ -133,7 +157,11 @@ export function render(report: Report, theme: Theme, expand: boolean): string[] 
   lines.push("");
   lines.push(row(theme, "Tool schemas", report.activeTokens));
   for (const group of report.active) {
-    lines.push(row(theme, group.label, group.tokens, plural(group.tools.length, "tool"), 2));
+    const detail =
+      group.label === "MCP gateway"
+        ? `${plural(group.tools.length, "tool")} — covers every server`
+        : plural(group.tools.length, "tool");
+    lines.push(row(theme, group.label, group.tokens, detail, 2));
     if (expand) {
       for (const tool of group.tools) {
         lines.push(row(theme, tool.name, tool.tokens, "", 4));
@@ -156,6 +184,16 @@ export function render(report: Report, theme: Theme, expand: boolean): string[] 
         }
       }
     }
+  }
+
+  if (!report.serversResolved) {
+    lines.push(
+      "",
+      theme.fg(
+        "warning",
+        "Some MCP tools could not be traced to a server, so no server is listed as idle.",
+      ),
+    );
   }
 
   lines.push("");
