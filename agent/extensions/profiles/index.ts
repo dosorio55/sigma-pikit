@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { loadManifest, type Manifest } from "./manifest.js";
 import {
   activeProfile, applyProfile, createProfile, findMigrations, listProfiles,
-  migrate, setActiveProfile,
+  migrate, profileDir, setActiveProfile,
 } from "./swap.js";
 import { claim, register, release } from "./lock.js";
 
@@ -47,7 +47,7 @@ async function runMigrations(ctx: ExtensionContext, manifest: Manifest, from: st
   const list = needs.map((n) => n.path).join(", ");
   const ok = await ctx.ui.confirm(
     `Adopt into profile "${from}"?`,
-    `${list}\n\nThese move into ~/.pi/profiles/${from}/ and are symlinked back.`,
+    `${list}\n\nThese move into ${profileDir(from)}/ and are symlinked back.`,
   );
   if (!ok) return false;
 

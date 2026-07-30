@@ -3,13 +3,13 @@ import {
   cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync,
   readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { activePath, profilesDir, type Manifest } from "./manifest.js";
 
 export const profileDir = (name: string) => join(profilesDir(), name);
 
-/** Reserved because they are files this plugin owns inside `~/.pi/profiles`. */
+/** Reserved because they are files this plugin owns inside the profiles dir. */
 const RESERVED = new Set(["manifest.json", "active", "lock"]);
 
 /**
@@ -175,9 +175,15 @@ export function applyProfile(manifest: Manifest, profile: string): SwapResult {
       continue; // already correct
     }
 
+    // Relative link text, because both ends live inside the agent dir and that
+    // dir may be a tracked dotfiles repo: git stores the target verbatim, so an
+    // absolute `/home/<user>/.pi/agent/...` would land broken on any other
+    // machine. `readlinkSync` consumers below already resolve against the link's
+    // own directory, so relative and absolute behave identically at runtime.
+    const link = relative(dirname(agentPath), target);
     const tmp = `${agentPath}.profiles-tmp-${process.pid}`;
     rmSync(tmp, { force: true });
-    symlinkSync(target, tmp);
+    symlinkSync(link, tmp);
     renameSync(tmp, agentPath);
     result.linked.push(path);
   }

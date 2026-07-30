@@ -24,12 +24,34 @@ symlinks inside `~/.pi/agent` so that other plugins read a different file, then
 calls `ctx.reload()`.
 
 ```
-~/.pi/profiles/
-  code/     mcp.json  settings.json  agents/  skills/  AGENTS.md
-  study/    mcp.json  settings.json  agents/  skills/  AGENTS.md
+~/.pi/agent/profiles/
+  code/     mcp.json  agents/  skills/  prompts/  AGENTS.md
+  study/    mcp.json  agents/  skills/  prompts/  AGENTS.md
 
-~/.pi/agent/mcp.json  ->  ~/.pi/profiles/code/mcp.json   (symlink)
+~/.pi/agent/mcp.json  ->  profiles/code/mcp.json   (symlink)
 ```
+
+### Why inside the agent dir
+
+`~/.pi/agent` is commonly a tracked dotfiles repo. A profile store next to it —
+`~/.pi/profiles` — would sit outside that repo, so the alternate configs the
+plugin exists to manage would be the one part of the setup that is not versioned
+or synced. Living inside the agent dir means profiles are tracked by whatever
+already tracks the config they replace.
+
+Two consequences fall out of that placement:
+
+- **The link text is relative** (`profiles/code/mcp.json`, not
+  `/home/<user>/.pi/agent/profiles/code/mcp.json`). Git stores a symlink's target
+  verbatim, so an absolute link would arrive broken on any machine with a
+  different home directory. Both ends are inside the same repo, so a relative
+  link is well-defined.
+- **`profiles` must be blacklisted explicitly.** See below — the placement
+  removes a protection that used to be free.
+
+Machine-specific state stays out of version control: `active` and `lock` name a
+choice and a set of pids that are true for one machine only, so a dotfiles repo
+should ignore them while tracking `manifest.json` and the profile directories.
 
 Switching = repoint the symlinks + `ctx.reload()` + new session.
 
@@ -91,7 +113,7 @@ nothing else:
 - listed → swapped per profile
 - unlisted → untouched
 
-Named `swap`, not `profile`: inside a file that lives in `~/.pi/profiles`,
+Named `swap`, not `profile`: inside a file that lives in the profiles dir,
 "profile" says nothing. `swap` names what actually happens to the path. Not
 `files` — the list is half directories.
 
@@ -117,7 +139,7 @@ original.
 ### Only ever touch links we created
 
 A symlink in the agent dir is only treated as ours if it resolves inside
-`~/.pi/profiles`. Anything else is the user's own wiring — `AGENTS.md ->
+`~/.pi/agent/profiles`. Anything else is the user's own wiring — `AGENTS.md ->
 ~/dotfiles/AGENTS.md` is a normal setup — and is adopted on migration or reported
 as blocked, never deleted. "Absent means remove the link" applies to our links
 only.
@@ -144,22 +166,61 @@ typo in the manifest should degrade, not brick pi:
 profiles: ignoring "auth.json" in swap — blacklisted (credentials)
 ```
 
-Alongside the "no paths outside the agent dir" rule, the mandatory entries are:
+### What earns a blacklist entry
 
-- `auth.json` — forking OAuth credentials, and the failure is silent
-- `npm/` — re-downloading packages per profile is genuinely heavy
-- `sessions/` — shared on purpose, see session semantics
-- `settings.json` — global preference only, see below
-The profiles directory is deliberately **not** in that list: `~/.pi/profiles` is
-a *sibling* of `~/.pi/agent`, so `canonical()` already rejects `../profiles` as
-not inside the agent dir. If `profilesDir()` is ever moved inside the agent dir,
-that protection disappears silently — add it to the blacklist then.
+The list is **not** an inventory of everything that stays shared. Unlisted is
+already a defined answer — untouched — so the agent dir's loose documents
+(`README.md`, `CHEATSHEET.md`, `TUNING.md`) need no entry, and giving them one
+would only forbid a per-profile arrangement that harms nothing. Likewise
+`keybindings.json` and a statusline's config: swapping those is a defensible
+choice and trivially reversed, so they stay out and the choice stays open.
+
+A path earns an entry only when listing it *by mistake* does damage that is
+silent, hard to undo, or self-locking. Four kinds qualify:
+
+**Secrets and security decisions.** `auth.json` and `trust.json`. Forking either
+fails quietly, and `trust.json` records which directories may run code — a
+per-profile copy means revoking trust in one profile leaves it granted in the
+other.
+
+**Pi-managed runtime.** `git/`, `npm/`, `bin/`, `tmp/`. Machine state, heavy
+(160 MB of `npm/` here), regenerated on demand.
+
+**Caches derived from a swapped file.** `mcp-cache.json`, `mcp-npx-cache.json`,
+`mcp-onboarding.json`. These are the subtle ones, because the mistake is
+*reasonable*: `mcp.json` is per-profile, so its cache looks like it must be too.
+It must not be. `mcp-cache.json` keys every entry by a hash of that server's
+config, so a shared cache is already correct across profiles and re-derives only
+what actually changed; swapping it discards that and re-probes every server on
+every switch. `mcp-npx-cache.json` stores resolved absolute binary paths, which
+belong to the machine.
+
+**Trap doors — paths whose swap removes the means of undoing it.** `extensions/`
+is pi's drop-in directory, and a profile lacking it has the symlink *removed*, so
+everything in it vanishes together. Put this plugin there and switching to such a
+profile deletes `/profile`, the only supported way back.
+
+`.git` is the other one, and it is a direct consequence of moving the store
+inside the agent dir: that dir is commonly a tracked dotfiles repo. Swapping
+`.git` relocates the entire repository into one profile, and switching to a
+profile without it unlinks the history. It is **not** covered by the `git` entry,
+which guards pi's package clone cache — different path, and prefix matching
+compares `git` + separator, which `.git` never matches.
+
+`profiles` itself is the last entry, and the one that has to be *stated*. An
+earlier layout put the
+store at `~/.pi/profiles`, a *sibling* of the agent dir, where `canonical()`
+rejected `../profiles` for free and no blacklist entry was needed. Moving it to
+`~/.pi/agent/profiles` deleted that protection silently: `profiles` is now an
+ordinary path inside the agent dir, and a manifest listing it would have the
+plugin swap its own store — every profile disappearing into whichever profile
+was being switched to. Prefix matching covers `profiles/code` too.
 
 Error out with the reason. Asymmetric on purpose: the `profile` list stays a
 single eyeballable list, the mandatory guards live in code where they cannot be
 accidentally un-guarded, and `blacklist` exists only to extend them.
 
-Manifest lives at `~/.pi/profiles/manifest.json`, next to the profiles it
+Manifest lives at `~/.pi/agent/profiles/manifest.json`, next to the profiles it
 describes.
 
 Location of the manifest, the `active` file and the lockfile is fixed and
@@ -177,7 +238,7 @@ out from under the switch.
 
 ### Migration runs on demand, per path
 
-**Decided.** Not at startup — on `/profile` invocation. If `~/.pi/profiles` does
+**Decided.** Not at startup — on `/profile` invocation. If the profiles dir does
 not exist the plugin does nothing and costs nothing.
 
 It is not a once-ever step either. The trigger is not plugin *updates* (plugins
@@ -439,12 +500,12 @@ config costs nothing at idle as long as nothing is set to `eager`/`keep-alive`.
 All open questions are resolved. Layout:
 
 ```
-~/.pi/profiles/
-  manifest.json      one list: the profile-scoped paths
-  active             one line: name of the active profile
-  lock               { "<pid>": "<profile>" }
-  code/              mcp.json  agents/  skills/  AGENTS.md
-  study/             (whatever subset exists)
+~/.pi/agent/profiles/
+  manifest.json      one list: the profile-scoped paths        (tracked)
+  active             one line: name of the active profile      (machine-local)
+  lock               { "<pid>": "<profile>" }                  (machine-local)
+  code/              mcp.json  agents/  skills/  AGENTS.md     (tracked)
+  study/             (whatever subset exists)                  (tracked)
 ```
 
 **In v1:**
