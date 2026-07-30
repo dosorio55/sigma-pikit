@@ -23,6 +23,7 @@ the two stay separately installable and neither needs the other.
 /profile study                # switch directly
 /profile new study            # create an empty profile
 /profile new study --from code  # create it as a copy
+/profile disable              # restore real top-level paths before uninstalling
 ```
 
 Which paths are profile-scoped is set in `~/.pi/agent/profiles/manifest.json`:
@@ -61,10 +62,12 @@ The store lives **inside** `~/.pi/agent` so a dotfiles repo tracking that
 directory versions the profiles too, and the symlinks it writes are relative
 (`mcp.json -> profiles/code/mcp.json`) so they survive being cloned to a
 different home directory. Track `manifest.json` and the profile directories;
-ignore `profiles/active` and `profiles/lock`, which are machine-local.
+ignore `profiles/active`, `profiles/lock` and `profiles/disable-lock`, which are
+machine-local.
 
-Profile names must match `[A-Za-z0-9][A-Za-z0-9._-]*`, and `--from` only accepts
-an existing profile.
+Profile names must match `[A-Za-z0-9][A-Za-z0-9._-]*`; plugin-owned names and
+command verbs (`active`, `lock`, `disable-lock`, `manifest.json`, `new`, `disable`) are reserved.
+`--from` only accepts an existing profile.
 
 Switching always starts a new session: the old transcript references tools the
 new profile may not register. Running `/profile <current>` does not no-op — it
@@ -74,6 +77,15 @@ a new plugin's config into the profile.
 Files already in `~/.pi/agent` are moved into the active profile and symlinked
 back, after asking. **Your own symlinks are preserved**: a path like
 `AGENTS.md -> ~/dotfiles/AGENTS.md` is adopted as a link, never deleted.
+
+Before uninstalling the extension or deleting `profiles/`, run `/profile disable`.
+It materializes the active profile as real paths in `~/.pi/agent`, removes the
+active marker, reloads Pi, and leaves every profile directory intact as a backup.
+Only links owned by this extension are replaced; real paths and user-owned
+symlinks are already independent and remain untouched. It also finds owned links
+from older manifest entries, and refuses while any other Pi instance is open.
+Once it reports success, the extension and `profiles/` can be removed without
+leaving dangling links.
 
 **Idle cost: none.** No watchers, no timers, no eager loading of inactive
 profiles. The manifest is read when you run `/profile`, and a switch is a handful

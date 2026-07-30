@@ -1,8 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
-import { lockPath, profilesDir } from "./manifest.js";
+import { disableLockPath, lockPath, profilesDir } from "./manifest.js";
 
 type Lock = Record<string, string>;
+
+export interface Conflict {
+  pid: number;
+  profile: string;
+}
 
 function alive(pid: number): boolean {
   try {
@@ -38,9 +43,28 @@ function write(lock: Lock): void {
   writeFileSync(lockPath(), JSON.stringify(lock, null, 2) + "\n");
 }
 
-export interface Conflict {
-  pid: number;
-  profile: string;
+function exclusive(): Conflict | null {
+  const file = disableLockPath();
+  if (!existsSync(file)) return null;
+
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8")) as Partial<Conflict>;
+    if (typeof value.pid === "number" && typeof value.profile === "string" && alive(value.pid)) {
+      return { pid: value.pid, profile: value.profile };
+    }
+  } catch {
+    // Corrupt or interrupted acquisition is stale, not a permanent veto.
+  }
+
+  rmSync(file, { force: true });
+  return null;
+}
+
+function dropOwnEntry(): void {
+  const lock = read();
+  if (!(String(process.pid) in lock)) return;
+  delete lock[String(process.pid)];
+  write(lock);
 }
 
 /**
@@ -50,10 +74,54 @@ export interface Conflict {
  * and change its profile. It turns a silent config yank into a clear error.
  */
 export function claim(profile: string): Conflict | null {
-  const lock = read();
+  const heldExclusive = exclusive();
+  if (heldExclusive && heldExclusive.pid !== process.pid) return heldExclusive;
 
+  const lock = read();
   for (const [pid, held] of Object.entries(lock)) {
     if (Number(pid) !== process.pid && held !== profile) {
+      return { pid: Number(pid), profile: held };
+    }
+  }
+
+  lock[String(process.pid)] = profile;
+  write(lock);
+
+  const racedExclusive = exclusive();
+  if (racedExclusive && racedExclusive.pid !== process.pid) {
+    dropOwnEntry();
+    return racedExclusive;
+  }
+  return null;
+}
+
+/** Disabling changes the shared layout, so no other pi instance may remain. */
+export function claimExclusive(profile: string): Conflict | null {
+  mkdirSync(profilesDir(), { recursive: true });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const held = exclusive();
+    if (held) {
+      if (held.pid === process.pid) break;
+      return held;
+    }
+
+    try {
+      writeFileSync(
+        disableLockPath(),
+        JSON.stringify({ pid: process.pid, profile }, null, 2) + "\n",
+        { flag: "wx" },
+      );
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || attempt === 1) throw err;
+    }
+  }
+
+  const lock = read();
+  for (const [pid, held] of Object.entries(lock)) {
+    if (Number(pid) !== process.pid) {
+      releaseExclusive();
       return { pid: Number(pid), profile: held };
     }
   }
@@ -64,23 +132,32 @@ export function claim(profile: string): Conflict | null {
 }
 
 /**
- * Record which profile this instance is running, without refusing.
- *
- * Called at session start: an instance that never runs `/profile` still needs an
- * entry, otherwise a second pi sees an empty lock and happily swaps config out
- * from under it — the exact failure the lock exists to prevent.
+ * Record which profile this instance is running, unless disable owns the layout.
  */
-export function register(profile: string): void {
+export function register(profile: string): Conflict | null {
+  const heldExclusive = exclusive();
+  if (heldExclusive && heldExclusive.pid !== process.pid) return heldExclusive;
+
   const lock = read();
-  if (lock[String(process.pid)] === profile) return;
-  lock[String(process.pid)] = profile;
-  write(lock);
+  if (lock[String(process.pid)] !== profile) {
+    lock[String(process.pid)] = profile;
+    write(lock);
+  }
+
+  const racedExclusive = exclusive();
+  if (racedExclusive && racedExclusive.pid !== process.pid) {
+    dropOwnEntry();
+    return racedExclusive;
+  }
+  return null;
 }
 
 /** Drop our entry so a recycled pid cannot inherit a phantom conflict. */
 export function release(): void {
-  const lock = read();
-  if (!(String(process.pid) in lock)) return;
-  delete lock[String(process.pid)];
-  write(lock);
+  dropOwnEntry();
+}
+
+export function releaseExclusive(): void {
+  const held = exclusive();
+  if (held?.pid === process.pid) rmSync(disableLockPath(), { force: true });
 }

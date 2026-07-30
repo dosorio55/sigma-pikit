@@ -5,10 +5,12 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { loadManifest, type Manifest } from "./manifest.js";
 import {
-  activeProfile, applyProfile, createProfile, findMigrations, listProfiles,
-  migrate, profileDir, setActiveProfile,
+  activeProfile, applyProfile, clearActiveProfile, createProfile, findMigrations,
+  listProfiles, materializeProfile, migrate, profileDir, setActiveProfile,
 } from "./swap.js";
-import { claim, register, release } from "./lock.js";
+import {
+  claim, claimExclusive, register, release, releaseExclusive,
+} from "./lock.js";
 
 const DEFAULT_PROFILE = "code";
 const ENTRY_TYPE = "profiles";
@@ -140,7 +142,59 @@ export default function profiles(pi: ExtensionAPI) {
       warnIgnored(ctx, ignored);
 
       const [verb, ...rest] = args.trim().split(/\s+/).filter(Boolean);
-      const current = activeProfile() ?? DEFAULT_PROFILE;
+      const active = activeProfile();
+      const current = active ?? DEFAULT_PROFILE;
+
+      if (verb === "disable") {
+        if (!active) {
+          ctx.ui.notify("profiles: already disabled", "info");
+          return;
+        }
+        if (!ctx.hasUI) {
+          ctx.ui.notify("profiles: /profile disable requires interactive confirmation", "error");
+          return;
+        }
+
+        await ctx.waitForIdle();
+
+        const ok = await ctx.ui.confirm(
+          `Disable profiles and materialize "${active}"?`,
+          `Managed paths become real files in ~/.pi/agent.\n\n` +
+            `Profiles are retained at ${profileDir(active)}/ as backups.`,
+        );
+        if (!ok) return;
+
+        const conflict = claimExclusive(active);
+        if (conflict) {
+          ctx.ui.notify(
+            `profiles: pi (pid ${conflict.pid}) is still open on profile "${conflict.profile}" — ` +
+              `close it before disabling`,
+            "error",
+          );
+          return;
+        }
+
+        let materialized: number;
+        try {
+          const result = materializeProfile(manifest, active);
+          materialized = result.materialized.length;
+          release();
+          clearActiveProfile(); // profile state changes only after every path lands
+        } catch (err) {
+          releaseExclusive();
+          register(active);
+          ctx.ui.notify(`profiles: disable failed — ${(err as Error).message}`, "error");
+          return;
+        }
+
+        releaseExclusive();
+        ctx.ui.notify(
+          `profiles: disabled — ${materialized} path(s) materialized; profile directories retained`,
+          "info",
+        );
+        await ctx.reload();
+        return;
+      }
 
       if (verb === "new") {
         const name = rest[0];
@@ -222,7 +276,15 @@ export default function profiles(pi: ExtensionAPI) {
 
     // Claim a slot even when this instance never switches, so a second pi
     // cannot silently swap config out from under it.
-    register(current);
+    const conflict = register(current);
+    if (conflict) {
+      ctx.ui.notify(
+        `profiles: pi (pid ${conflict.pid}) is disabling profiles — closing this instance`,
+        "error",
+      );
+      ctx.shutdown();
+      return;
+    }
 
     // The session's own stamp is the only state that survives here: pi calls the
     // extension factory afresh on every runtime construction, so module and

@@ -5,12 +5,15 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { activePath, profilesDir, type Manifest } from "./manifest.js";
+import {
+  activePath, builtinBlacklistReason, profilesDir, type Manifest,
+} from "./manifest.js";
 
 export const profileDir = (name: string) => join(profilesDir(), name);
 
 /** Reserved because they are files this plugin owns inside the profiles dir. */
-const RESERVED = new Set(["manifest.json", "active", "lock"]);
+const RESERVED = new Set(["manifest.json", "active", "lock", "disable-lock"]);
+const COMMAND_NAMES = new Set(["new", "disable"]);
 
 /**
  * Profile names become directory names, so they get the same treatment as
@@ -53,6 +56,10 @@ export function activeProfile(): string | null {
 export function setActiveProfile(name: string): void {
   mkdirSync(profilesDir(), { recursive: true });
   writeFileSync(activePath(), name + "\n");
+}
+
+export function clearActiveProfile(): void {
+  rmSync(activePath(), { force: true });
 }
 
 /** `lstat` without throwing on a missing path. */
@@ -139,6 +146,159 @@ export interface SwapResult {
   blocked: string[];
 }
 
+export interface MaterializeResult {
+  materialized: string[];
+  cleared: string[];
+  independent: string[];
+}
+
+const DISABLE_BACKUP_SUFFIX = ".profiles-disable-backup";
+
+/**
+ * Find links that an older manifest managed too. Without this sweep, removing a
+ * manifest entry before disabling could leave a hidden dependency on the store.
+ */
+function ownedPaths(agentDir: string): string[] {
+  const found = new Set<string>();
+
+  function walk(dir: string, prefix: string): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = prefix ? join(prefix, entry.name) : entry.name;
+      if (builtinBlacklistReason(path)) continue;
+
+      const full = join(dir, entry.name);
+      if (entry.isSymbolicLink()) {
+        if (ownedByUs(full)) {
+          found.add(path.endsWith(DISABLE_BACKUP_SUFFIX) ? path.slice(0, -DISABLE_BACKUP_SUFFIX.length) : path);
+        }
+      } else if (entry.isDirectory()) {
+        walk(full, path);
+      }
+    }
+  }
+
+  walk(agentDir, "");
+  return [...found];
+}
+
+function copyForMaterialization(
+  source: string,
+  destination: string,
+  agentDir: string,
+  profileRoot: string,
+): string | null {
+  const st = lstatSync(source);
+  if (!st.isSymbolicLink()) {
+    cpSync(source, destination, { recursive: true });
+    return null;
+  }
+
+  const link = readlinkSync(source);
+  const resolved = resolve(dirname(source), link);
+  const rel = relative(profileRoot, resolved);
+  if (rel === "") throw new Error(`cannot materialize symlink to profile root: ${source}`);
+  const insideProfile = rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
+
+  if (insideProfile && !builtinBlacklistReason(rel)) {
+    const restored = relative(dirname(destination), join(agentDir, rel));
+    symlinkSync(restored || ".", destination);
+    return rel;
+  }
+
+  if (insideProfile) {
+    cpSync(source, destination, { recursive: true, dereference: true });
+    return null;
+  }
+
+  const restored = isAbsolute(link) ? link : relative(dirname(destination), resolved);
+  symlinkSync(restored || ".", destination);
+  return null;
+}
+
+/** Replace our links with independent copies of the active profile. */
+export function materializeProfile(manifest: Manifest, profile: string): MaterializeResult {
+  const agentDir = getAgentDir();
+  const result: MaterializeResult = { materialized: [], cleared: [], independent: [] };
+  const configured = new Set(manifest.swap);
+  const paths = [...new Set([...manifest.swap, ...ownedPaths(agentDir)])];
+  const seen = new Set(paths);
+  let index = 0;
+
+  while (true) {
+    while (index < paths.length) {
+      const path = paths[index++];
+      const agentPath = join(agentDir, path);
+      const backup = `${agentPath}${DISABLE_BACKUP_SUFFIX}`;
+      let st = lstatOrNull(agentPath);
+      const backupSt = lstatOrNull(backup);
+
+      // Recover the only interruption window: the old link was parked but the
+      // independent copy did not land. A fixed name makes this survive the pid.
+      if (backupSt) {
+        if (!ours(backup, backupSt)) {
+          throw new Error(`cannot recover ${path}: ${backup} is not a profiles link`);
+        }
+        if (!st) {
+          renameSync(backup, agentPath);
+          st = lstatOrNull(agentPath);
+        } else {
+          rmSync(backup, { force: true });
+        }
+      }
+
+      // Real paths and user-owned symlinks do not depend on the profile store.
+      if (st && !ours(agentPath, st)) {
+        result.independent.push(path);
+        continue;
+      }
+
+      const target = configured.has(path)
+        ? join(profileDir(profile), path)
+        : st
+          ? resolve(agentPath, "..", readlinkSync(agentPath))
+          : join(profileDir(profile), path);
+
+      if (!lstatOrNull(target)) {
+        if (st) {
+          rmSync(agentPath, { force: true });
+          result.cleared.push(path);
+        }
+        continue;
+      }
+
+      mkdirSync(dirname(agentPath), { recursive: true });
+      const tmp = `${agentPath}.profiles-materialize-${process.pid}`;
+      rmSync(tmp, { recursive: true, force: true });
+
+      try {
+        const dependency = copyForMaterialization(target, tmp, agentDir, profileDir(profile));
+        if (dependency && !seen.has(dependency)) {
+          seen.add(dependency);
+          paths.push(dependency);
+        }
+        if (st) renameSync(agentPath, backup);
+        renameSync(tmp, agentPath);
+        rmSync(backup, { force: true });
+      } catch (err) {
+        rmSync(tmp, { recursive: true, force: true });
+        if (!lstatOrNull(agentPath) && lstatOrNull(backup)) renameSync(backup, agentPath);
+        throw err;
+      }
+
+      result.materialized.push(path);
+    }
+
+    const nested = ownedPaths(agentDir).filter((path) => !seen.has(path));
+    if (nested.length === 0) break;
+    for (const path of nested) {
+      seen.add(path);
+      paths.push(path);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Point the agent dir at `profile`.
  *
@@ -192,7 +352,7 @@ export function applyProfile(manifest: Manifest, profile: string): SwapResult {
 }
 
 export function createProfile(name: string, from?: string): void {
-  if (!validName(name)) throw new Error(`invalid profile name "${name}"`);
+  if (!validName(name) || COMMAND_NAMES.has(name)) throw new Error(`invalid profile name "${name}"`);
   const dir = profileDir(name);
   if (existsSync(dir)) throw new Error(`profile "${name}" already exists`);
 

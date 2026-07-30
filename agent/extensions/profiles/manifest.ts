@@ -18,6 +18,7 @@ export function profilesDir(): string {
 export const manifestPath = () => join(profilesDir(), "manifest.json");
 export const activePath = () => join(profilesDir(), "active");
 export const lockPath = () => join(profilesDir(), "lock");
+export const disableLockPath = () => join(profilesDir(), "disable-lock");
 
 /** Seeded on first use. Only paths that are genuinely per-profile. */
 const DEFAULT_SWAP = ["mcp.json", "agents/", "skills/", "prompts/", "AGENTS.md"];
@@ -111,6 +112,11 @@ function blacklistedAs(path: string, list: string[]): string | null {
   return list.find((b) => path === b || path.startsWith(b + sep)) ?? null;
 }
 
+export function builtinBlacklistReason(path: string): string | null {
+  const entry = blacklistedAs(path, Object.keys(BUILTIN_BLACKLIST));
+  return entry ? BUILTIN_BLACKLIST[entry] : null;
+}
+
 /** Tolerate a hand-edited file that is valid JSON but the wrong shape. */
 function stringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
@@ -180,9 +186,9 @@ export function loadManifest(): LoadResult {
       continue;
     }
 
-    const builtin = blacklistedAs(path, Object.keys(BUILTIN_BLACKLIST));
+    const builtin = builtinBlacklistReason(path);
     if (builtin) {
-      ignored.push({ path: entry, reason: `blacklisted (${BUILTIN_BLACKLIST[builtin]})` });
+      ignored.push({ path: entry, reason: `blacklisted (${builtin})` });
       continue;
     }
     if (blacklistedAs(path, userBlacklist)) {

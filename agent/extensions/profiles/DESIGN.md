@@ -49,9 +49,10 @@ Two consequences fall out of that placement:
 - **`profiles` must be blacklisted explicitly.** See below — the placement
   removes a protection that used to be free.
 
-Machine-specific state stays out of version control: `active` and `lock` name a
-choice and a set of pids that are true for one machine only, so a dotfiles repo
-should ignore them while tracking `manifest.json` and the profile directories.
+Machine-specific state stays out of version control: `active`, `lock` and the
+short-lived `disable-lock` name a choice and pids that are true for one machine
+only, so a dotfiles repo should ignore them while tracking `manifest.json` and
+the profile directories.
 
 Switching = repoint the symlinks + `ctx.reload()` + new session.
 
@@ -290,6 +291,33 @@ No dangling symlinks are possible.
 - **`/profile new <name> --from <other>`** — copy an existing profile as a
   starting point, for variants of a working setup.
 
+## Disabling and uninstalling
+
+Once migration has happened, the top-level paths are links and the canonical
+configuration lives under `profiles/<active>/`. Deleting the profile store as if
+it were plugin metadata would therefore leave dangling links and remove the real
+configuration.
+
+`/profile disable` is the supported exit path. After confirmation it copies the
+active profile's managed paths back to real paths in the agent dir, leaves all
+profile directories intact as backups, removes `active`, and reloads Pi. Real
+paths and user-owned symlinks are already independent and are left untouched.
+It sweeps the agent dir for links into the profile store as well as reading the
+current manifest, so removing an old manifest entry cannot hide a dependency.
+Builtin-blacklisted trees are skipped because they could never have been managed.
+Disable requires the lock exclusively: another Pi on even the same profile must
+close first, since removing `active` changes profile semantics globally. After it
+succeeds, both the extension and the profile store can be removed.
+
+A directory cannot be atomically renamed over a directory symlink on Linux. For
+each managed path, disable therefore copies to a temporary sibling, parks the
+working link under a fixed backup name, and renames the copy into place. If the
+landing rename fails, it immediately restores the link. If the process dies in
+the narrow interval between those renames, the next disable run recognizes the
+fixed backup and restores it before continuing. `active` is removed only after
+all paths land, so every other interruption remains retryable as an active
+profile.
+
 ## UI
 
 `ctx.ui.select(title, options)` is the same SelectList overlay `/resume` uses
@@ -504,6 +532,7 @@ All open questions are resolved. Layout:
   manifest.json      one list: the profile-scoped paths        (tracked)
   active             one line: name of the active profile      (machine-local)
   lock               { "<pid>": "<profile>" }                  (machine-local)
+  disable-lock       exclusive owner during `/profile disable`  (machine-local, temporary)
   code/              mcp.json  agents/  skills/  AGENTS.md     (tracked)
   study/             (whatever subset exists)                  (tracked)
 ```
@@ -521,6 +550,8 @@ All open questions are resolved. Layout:
 
 8. `session_before_switch`: on `/resume` into a foreign profile, swap + reload
    before the session opens.
+9. `/profile disable`: materialize the active profile before uninstalling while
+   retaining the profile directories as backups.
 
 **Deferred, consciously:**
 
