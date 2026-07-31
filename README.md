@@ -11,6 +11,32 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `footer`  | Two-line footer: project path, model, branch, context bar, tokens, thinking level and cost. | none |
 | `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
+| `viewport` | Pins the composer and footer to the bottom of the screen while the history scrolls with the mouse wheel. Real mouse events, not emulated arrow keys, so scrolling never leaks into open menus. | none |
+
+### `viewport`
+
+Scroll with the wheel, or PageUp/PageDown. The composer stays visible and usable
+wherever you are in the history.
+
+Instead of taking over the screen, it replaces pi's scrollable children with a
+wrapper that hands over only the lines that fit, so the composer and footer stay
+on the glass by construction. Everything else — the editor, focus, resize,
+message rendering — is still pi's. See `DESIGN.md` for the reasoning and for the
+alternatives that were rejected.
+
+Two things to know:
+
+- **Replaces `pi-claude-style-scroll`.** Both manage terminal screen state; run
+  one or the other, not both.
+- **Selecting text needs Shift+drag**, because capturing the wheel means
+  capturing the mouse. Standard in Ghostty, Alacritty, kitty, VTE and Windows
+  Terminal.
+
+**Idle cost: none.** No processes, timers, watchers or connections — one input
+listener and one zero-height widget, torn down on `session_shutdown`. It also
+registers a `process.on("exit")` listener for the sole purpose of restoring the
+mouse mode; leaving it set after a crash feeds escape sequences to the parent
+shell as garbage.
 
 ### `context`
 
