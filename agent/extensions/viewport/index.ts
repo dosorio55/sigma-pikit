@@ -52,6 +52,13 @@ class ScrollViewport implements Component {
   private stuckToBottom = true;
   private viewportRows = 1;
   private totalRows = 0;
+  /**
+   * Copy mode hands over every line instead of a slice. The total then exceeds
+   * the terminal height again, so pi spills the history into the terminal's own
+   * scrollback — which is what gives native wheel and native drag-selection
+   * back, across the whole transcript.
+   */
+  private copyMode = false;
 
   constructor(
     private readonly sources: Component[],
@@ -66,6 +73,19 @@ class ScrollViewport implements Component {
     const lines: string[] = [];
     for (const source of this.sources) {
       for (const line of source.render(width)) lines.push(line);
+    }
+
+    // Copy mode hands over everything down to the bottom of the view you were
+    // on, rather than the whole transcript: the terminal always shows the end of
+    // what it is given, so dumping all of it would throw you to the bottom.
+    // This way the last rows written are the rows you were already looking at,
+    // with the rest above them in native scrollback. `offset` and `viewportRows`
+    // are deliberately not recomputed here — they hold the values from the last
+    // clipped frame, which is exactly the view being preserved, so leaving copy
+    // mode restores it unchanged.
+    if (this.copyMode) {
+      if (this.totalRows === 0) return lines;
+      return lines.slice(0, this.offset + this.viewportRows);
     }
 
     // Siblings are memoised, so re-rendering them to measure is a cache hit.
@@ -104,6 +124,14 @@ class ScrollViewport implements Component {
   get pageSize(): number {
     return Math.max(1, this.viewportRows - 1);
   }
+
+  get inCopyMode(): boolean {
+    return this.copyMode;
+  }
+
+  setCopyMode(enabled: boolean): void {
+    this.copyMode = enabled;
+  }
 }
 
 /**
@@ -130,9 +158,22 @@ function install(tui: TUI): { viewport: ScrollViewport; restore: () => void } | 
   };
 }
 
+const COPY_MODE_KEY = "alt+c";
+
 export default function viewport(pi: ExtensionAPI) {
   let installed = false;
   let teardown: (() => void) | null = null;
+  let toggleCopyMode: (() => void) | null = null;
+
+  pi.registerShortcut(COPY_MODE_KEY, {
+    description: "viewport: copy mode (release the history for native selection)",
+    handler: () => toggleCopyMode?.(),
+  });
+
+  pi.registerCommand("copy-mode", {
+    description: "Release the history into the terminal scrollback so you can select and copy natively",
+    handler: async () => toggleCopyMode?.(),
+  });
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     if (!ctx.hasUI) return;
@@ -165,7 +206,22 @@ export default function viewport(pi: ExtensionAPI) {
         if (view.scrollBy(delta)) tui.requestRender();
       };
 
+      toggleCopyMode = () => {
+        const entering = !view.inCopyMode;
+        view.setCopyMode(entering);
+        // Mouse capture is exactly what blocks native selection, so drop it.
+        tui.terminal.write(entering ? MOUSE_OFF : MOUSE_ON);
+        ctx.ui.setStatus(
+          "viewport",
+          entering ? `copy mode · ${COPY_MODE_KEY} to exit` : undefined,
+        );
+        tui.requestRender(true);
+      };
+
       const unsubscribe = ctx.ui.onTerminalInput((data: string) => {
+        // In copy mode the history belongs to the terminal, not to us.
+        if (view.inCopyMode) return undefined;
+
         if (data === PAGE_UP) {
           scroll(-view.pageSize);
           return { consume: true };
@@ -200,6 +256,7 @@ export default function viewport(pi: ExtensionAPI) {
         restoreMouse();
         process.off("exit", restoreMouse);
         restore();
+        toggleCopyMode = null;
       };
     }
   });

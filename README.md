@@ -11,12 +11,12 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `footer`  | Two-line footer: project path, model, branch, context bar, tokens, thinking level and cost. | none |
 | `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
-| `viewport` | Pins the composer and footer to the bottom of the screen while the history scrolls with the mouse wheel. Real mouse events, not emulated arrow keys, so scrolling never leaks into open menus. | none |
+| `viewport` | Pins the composer and footer to the bottom of the screen while the history scrolls with the mouse wheel. Real mouse events, not emulated arrow keys, so scrolling never leaks into open menus. `alt+c` releases the history for native selection. | none |
 
 ### `viewport`
 
 Scroll with the wheel, or PageUp/PageDown. The composer stays visible and usable
-wherever you are in the history.
+wherever you are in the history. `alt+c` (or `/copy-mode`) toggles copy mode.
 
 Instead of taking over the screen, it replaces pi's scrollable children with a
 wrapper that hands over only the lines that fit, so the composer and footer stay
@@ -24,13 +24,18 @@ on the glass by construction. Everything else — the editor, focus, resize,
 message rendering — is still pi's. See `DESIGN.md` for the reasoning and for the
 alternatives that were rejected.
 
-Two things to know:
+**Selecting text.** Shift+drag works for anything on screen, because capturing
+the wheel means capturing the mouse (standard bypass in Ghostty, Alacritty,
+kitty, VTE and Windows Terminal). To select across more than one screenful, hit
+**`alt+c`** — copy mode releases the history into the terminal's own scrollback,
+so wheel and drag go back to being native, with your terminal's usual copy
+binding. It keeps your place: whatever you were looking at stays on screen with
+the rest above it in scrollback. `alt+c` again restores the clipped view
+unchanged. History below where you stood is not released, so if you need more,
+scroll down and toggle again.
 
-- **Replaces `pi-claude-style-scroll`.** Both manage terminal screen state; run
-  one or the other, not both.
-- **Selecting text needs Shift+drag**, because capturing the wheel means
-  capturing the mouse. Standard in Ghostty, Alacritty, kitty, VTE and Windows
-  Terminal.
+**Replaces `pi-claude-style-scroll`.** Both manage terminal screen state; run one
+or the other, not both.
 
 **Idle cost: none.** No processes, timers, watchers or connections — one input
 listener and one zero-height widget, torn down on `session_shutdown`. It also

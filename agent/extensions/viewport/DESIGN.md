@@ -96,6 +96,41 @@ PageUp/PageDown scroll by a screenful, as a mouse-free alternative. Both are
 recognised by `keys.js:245-246` but bound to no action anywhere in pi or
 pi-tui, so taking them conflicts with nothing.
 
+## Copy mode
+
+Shift+drag gets native selection back for text that is on screen, but a drag
+that crosses a scroll dies: native selection anchors to screen *cells*, and
+scrolling repaints them, so the text slides out from under the highlight. Worse,
+Shift also bypasses mouse capture, so the wheel goes to the terminal's scrollback
+— which clipping has left empty. Selecting more than one screenful is therefore
+impossible while clipping is on.
+
+Copy mode (`alt+c`, or `/copy-mode`) is the answer, and it falls out of the
+architecture for free: **it is just clipping turned off.** The wrapper hands over
+every line, the total exceeds the terminal height again, and pi spills the
+history into the terminal's own scrollback exactly as it does without this
+extension. Mouse capture is released at the same time. You get native wheel and
+native drag-selection over the whole transcript, with your terminal's own copy
+binding, and `alt+c` again restores clipping.
+
+**It keeps your place.** Not quite every line: it hands over everything down to
+`offset + viewportRows`, the bottom of the view you were on. A terminal always
+shows the end of what has been written to it, and no escape sequence can place
+the scrollback view anywhere else — that position belongs to the user, not the
+application. So dumping the whole transcript would throw you to the end of it.
+Writing only as far as your current view means the last rows written are the
+rows you were already looking at, with the rest above them in scrollback.
+
+The trade is that history *below* where you stood is not in the dump; press
+`alt+c` twice from further down to get it. `offset` and `viewportRows` are
+deliberately not recomputed in copy mode — they hold the values from the last
+clipped frame, which is exactly the view being preserved, so leaving copy mode
+restores it unchanged.
+
+This is worth contrasting with the alternate-screen design, where copy mode
+needed an explicit transcript dump and a screen-buffer switch. Here it is a
+boolean.
+
 ## What we do not own
 
 We do not enter the alternate screen, do not touch the keyboard protocol stack,
@@ -122,18 +157,20 @@ else, which is the exact problem we are solving.
 
 ## Known limits
 
-**No scrollback.** History is clipped to the viewport, so the terminal has
-nothing to scroll or select beyond what is on screen. Selecting text that is
-scrolled off requires bringing it on screen first.
+**No scrollback while clipping is on.** History is clipped to the viewport, so
+the terminal has nothing to scroll or select beyond what is on screen. Copy mode
+is the escape hatch.
 
-**Selection breaks across a scroll.** A drag that crosses a wheel tick loses its
-anchor, because the cells move under it. Selecting static text works natively.
-Fixing this properly means compositing the highlight ourselves — `sliceWithWidth`
-and `extractSegments` (`pi-tui/dist/utils.d.ts:70,79`) and
-`applyBackgroundToLine` (`:51`) are exactly the right primitives, but note they
-are *not* re-exported from the package index, so it would mean a deep import or
-vendoring ~60 lines. Out of scope for now; a copy mode that dumps the transcript
-into the normal buffer for native selection is the cheaper answer.
+**Selection still breaks across a scroll** in normal mode; you switch to copy
+mode instead. Fixing it in place means compositing the highlight ourselves and
+holding selection in buffer coordinates rather than screen cells, so that
+scrolling cannot invalidate it. `sliceWithWidth` and `extractSegments`
+(`pi-tui/dist/utils.d.ts:70,79`) and `applyBackgroundToLine` (`:51`) are exactly
+the right primitives — note they are *not* re-exported from the package index,
+so it would mean a deep import or vendoring ~60 lines. It also needs drag
+tracking (`?1002h`), buffer coordinates that survive a re-wrap on resize, and
+auto-scroll at the edges. That is the expensive feature in this whole design,
+and copy mode is the cheap answer that makes it optional.
 
 **Conflicts with `pi-claude-style-scroll`.** Both manage terminal screen state;
 run one or the other.
