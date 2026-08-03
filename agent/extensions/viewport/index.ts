@@ -121,6 +121,14 @@ class ScrollViewport implements Component {
     return true;
   }
 
+  scrollToBottom(): boolean {
+    const maxOffset = Math.max(0, this.totalRows - this.viewportRows);
+    const moved = this.offset !== maxOffset;
+    this.offset = maxOffset;
+    this.stuckToBottom = true;
+    return moved;
+  }
+
   get pageSize(): number {
     return Math.max(1, this.viewportRows - 1);
   }
@@ -159,15 +167,22 @@ function install(tui: TUI): { viewport: ScrollViewport; restore: () => void } | 
 }
 
 const COPY_MODE_KEY = "alt+c";
+const SCROLL_TO_BOTTOM_KEY = "ctrl+end";
 
 export default function viewport(pi: ExtensionAPI) {
   let installed = false;
   let teardown: (() => void) | null = null;
   let toggleCopyMode: (() => void) | null = null;
+  let scrollToBottom: (() => void) | null = null;
 
   pi.registerShortcut(COPY_MODE_KEY, {
     description: "viewport: copy mode (release the history for native selection)",
     handler: () => toggleCopyMode?.(),
+  });
+
+  pi.registerShortcut(SCROLL_TO_BOTTOM_KEY, {
+    description: "viewport: scroll to bottom",
+    handler: () => scrollToBottom?.(),
   });
 
   pi.registerCommand("copy-mode", {
@@ -204,6 +219,10 @@ export default function viewport(pi: ExtensionAPI) {
 
       const scroll = (delta: number): void => {
         if (view.scrollBy(delta)) tui.requestRender();
+      };
+
+      scrollToBottom = () => {
+        if (!view.inCopyMode && view.scrollToBottom()) tui.requestRender();
       };
 
       toggleCopyMode = () => {
@@ -257,6 +276,7 @@ export default function viewport(pi: ExtensionAPI) {
         process.off("exit", restoreMouse);
         restore();
         toggleCopyMode = null;
+        scrollToBottom = null;
       };
     }
   });
