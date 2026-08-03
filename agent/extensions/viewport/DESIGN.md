@@ -94,7 +94,9 @@ and VTE.
 
 PageUp/PageDown scroll by a screenful, as a mouse-free alternative. Both are
 recognised by `keys.js:245-246` but bound to no action anywhere in pi or
-pi-tui, so taking them conflicts with nothing.
+pi-tui, so taking them conflicts with nothing. Ctrl+End jumps to the bottom and
+resumes following new output; it does nothing in copy mode, where navigation
+belongs to the terminal.
 
 ## Copy mode
 
