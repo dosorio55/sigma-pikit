@@ -24,13 +24,6 @@ transcript of a child that has been running for ten minutes. The information is
 all there and the pane does scroll — `Shift+J`/`Shift+K` by line, `PgUp`/`PgDn`
 by page — but reading a conversation through that slot is not reading it.
 
-**The wheel makes it worse, and that part is not their bug.** With
-`pi-claude-style-scroll` installed, `?1007` encodes wheel events as cursor keys,
-and in `SubagentFleetComponent.handleInput` `up`/`down` are `moveSelection`. So
-scrolling changes which agent you are looking at. See `viewport/DESIGN.md` for
-the cause; a full-screen single-agent view fixes the symptom by construction,
-because with no roster on screen a stray arrow key can only scroll.
-
 ## The data is already on disk
 
 Every child writes a transcript while it runs — `pi-subagents/src/shared/child-transcript.ts`:
@@ -150,7 +143,3 @@ already own mutation, and duplicating that is how this stops being small.
 - **Non-project `artifactDir`.** With `"session"` or `"temp"` the artifacts are
   elsewhere (`getArtifactsDir`). Resolve the preference from settings, or only
   support the default and say so.
-- **Interaction with `viewport`.** Both open a full-screen surface. Once viewport
-  owns the wheel with real SGR mouse events, this view gets wheel scrolling for
-  free — worth building viewport first, or at least not designing around fake
-  arrows.
