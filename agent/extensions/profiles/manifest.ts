@@ -47,6 +47,26 @@ const BUILTIN_BLACKLIST: Record<string, string> = {
   "bin": "pi-managed runtime",
   "tmp": "pi-managed scratch space",
 
+  // Dependency metadata and installed modules belong to the shared extension
+  // runtime. Profiling one side without the other can load code against a
+  // different dependency graph; profiling both duplicates a heavy tree.
+  "package.json": "dependency manifest for the shared extension runtime",
+  "package-lock.json": "dependency lock for the shared extension runtime",
+  "pnpm-lock.yaml": "dependency lock for the shared extension runtime",
+  "yarn.lock": "dependency lock for the shared extension runtime",
+  "bun.lock": "dependency lock for the shared extension runtime",
+  "bun.lockb": "dependency lock for the shared extension runtime",
+  "node_modules": "shared dependency runtime, heavy and generated",
+  ".npmrc": "registry configuration may contain credentials",
+
+  // Persistent state owned by installed extensions. Sessions and projects are
+  // shared across profiles, so splitting their indexes and execution history
+  // would leave related state in whichever profile happened to create it.
+  "fff": "search indexes, history databases and lock state",
+  "missions": "durable subagent state for shared projects and sessions",
+  "run-history.jsonl": "shared subagent execution history",
+  ".playwright-mcp": "browser runtime may contain credentials and machine state",
+
   // Caches derived from a file that *is* swapped, which is exactly why someone
   // would reasonably assume they must be swapped too. They must not be:
   // `mcp-cache.json` keys every entry by a hash of the server's config, so a

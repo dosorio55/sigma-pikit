@@ -187,6 +187,19 @@ other.
 **Pi-managed runtime.** `git/`, `npm/`, `bin/`, `tmp/`. Machine state, heavy
 (160 MB of `npm/` here), regenerated on demand.
 
+**Shared extension dependencies.** `package.json`, `package-lock.json`,
+`pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, `bun.lockb`, `node_modules/` and
+`.npmrc`. Extensions are deliberately shared, so profiling their dependency
+manifest or lock without the installed tree creates a mismatch, while profiling
+the tree too duplicates generated runtime. `.npmrc` may also carry registry
+credentials.
+
+**Installed-extension runtime.** `fff/`, `missions/`, `run-history.jsonl` and
+`.playwright-mcp/`. These hold search indexes and locks, durable subagent state
+for shared projects and sessions, execution history, and browser state that may
+include credentials. Splitting them by profile is silent state loss rather than
+configuration.
+
 **Caches derived from a swapped file.** `mcp-cache.json`, `mcp-npx-cache.json`,
 `mcp-onboarding.json`. These are the subtle ones, because the mistake is
 *reasonable*: `mcp.json` is per-profile, so its cache looks like it must be too.

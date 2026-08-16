@@ -46,6 +46,8 @@ warning rather than an error:
 |------|-----|
 | `auth.json`, `trust.json` | credentials and project trust — forking them fails silently |
 | `git/`, `npm/`, `bin/`, `tmp/` | pi-managed runtime, heavy and machine-specific |
+| `package.json`, package-manager lockfiles, `node_modules/`, `.npmrc` | dependency graph for shared extensions; generated modules are heavy and registry config may contain credentials |
+| `fff/`, `missions/`, `run-history.jsonl`, `.playwright-mcp/` | extension indexes, durable subagent state, execution history and credential-bearing browser runtime |
 | `mcp-cache.json`, `mcp-npx-cache.json`, `mcp-onboarding.json` | caches derived from `mcp.json`; keyed by config hash, so already correct shared |
 | `sessions/` | shared across profiles on purpose |
 | `settings.json`, `models-store.json` | global preference and provider catalogue |
