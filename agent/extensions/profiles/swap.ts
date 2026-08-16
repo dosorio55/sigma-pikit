@@ -307,6 +307,12 @@ export function materializeProfile(manifest: Manifest, profile: string): Materia
  * lacks is *removed*, not stubbed: absent is the state every plugin already
  * handles, because it is the fresh-install state.
  */
+export function ensureProfileDirectories(manifest: Manifest, profile: string): void {
+  for (const path of manifest.directories) {
+    mkdirSync(join(profileDir(profile), path), { recursive: true });
+  }
+}
+
 export function applyProfile(manifest: Manifest, profile: string): SwapResult {
   const agentDir = getAgentDir();
   const result: SwapResult = { linked: [], cleared: [], blocked: [] };
@@ -351,7 +357,7 @@ export function applyProfile(manifest: Manifest, profile: string): SwapResult {
   return result;
 }
 
-export function createProfile(name: string, from?: string): void {
+export function createProfile(name: string, from?: string, directories: string[] = []): void {
   if (!validName(name) || COMMAND_NAMES.has(name)) throw new Error(`invalid profile name "${name}"`);
   const dir = profileDir(name);
   if (existsSync(dir)) throw new Error(`profile "${name}" already exists`);
@@ -364,9 +370,9 @@ export function createProfile(name: string, from?: string): void {
       throw new Error(`no profile "${from}" to copy from`);
     }
     cpSync(profileDir(from), dir, { recursive: true, dereference: true });
-    return;
+  } else {
+    mkdirSync(dir, { recursive: true });
   }
 
-  // Empty means the files are *absent*, not `{}` or `[]`.
-  mkdirSync(dir, { recursive: true });
+  for (const path of directories) mkdirSync(join(dir, path), { recursive: true });
 }

@@ -82,6 +82,7 @@ const BUILTIN_BLACKLIST: Record<string, string> = {
 
 export interface Manifest {
   swap: string[];
+  directories: string[];
   blacklist: string[];
 }
 
@@ -177,9 +178,11 @@ export function loadManifest(): LoadResult {
   }
 
   const swap: string[] = [];
+  const directories: string[] = [];
 
   for (const entry of rawSwap ?? DEFAULT_SWAP) {
     const path = canonical(entry);
+    const isDirectory = /[\\/]$/.test(entry);
 
     if (path === null) {
       ignored.push({ path: entry, reason: "not inside the agent dir" });
@@ -196,7 +199,8 @@ export function loadManifest(): LoadResult {
       continue;
     }
     if (!swap.includes(path)) swap.push(path);
+    if (isDirectory && !directories.includes(path)) directories.push(path);
   }
 
-  return { manifest: { swap, blacklist: userBlacklist }, ignored };
+  return { manifest: { swap, directories, blacklist: userBlacklist }, ignored };
 }

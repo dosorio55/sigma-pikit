@@ -177,6 +177,15 @@ Try a single extension without installing anything:
 pi -ne -e ./agent/extensions/footer/index.ts
 ```
 
+Test profiles together with its footer indicator while disabling every installed
+extension:
+
+```bash
+pi --no-extensions \
+  -e /home/alejandro/Projects/Development/Personal/Pi-plugins/sigma/agent/extensions/profiles/index.ts \
+  -e /home/alejandro/Projects/Development/Personal/Pi-plugins/sigma/agent/extensions/footer/index.ts
+```
+
 Install it permanently from git (once published):
 
 ```bash

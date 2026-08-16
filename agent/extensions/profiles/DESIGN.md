@@ -276,18 +276,24 @@ to be per-profile, so there is nothing to merge.
 
 ### Creating a profile
 
-An "empty" profile does **not** mean files containing `{}` or `[]`. It means the
-files are *absent*, which is a state every plugin already handles correctly —
-it is the fresh-install state. So no synthetic empty values are ever written, and
-the swap rule is per-path, mirroring the migration rule:
+An "empty" profile does **not** mean files containing `{}` or `[]`. File entries
+are absent, which is the fresh-install state every plugin already handles.
+Directory entries (the manifest paths ending in `/`) are created as empty
+directories so their top-level symlinks remain usable installation targets. A
+skill installer writing to `~/.pi/agent/skills`, for example, therefore writes
+directly into the active profile even before it contains a skill.
+
+The swap rule remains per-path:
 
 - path exists in the target profile → symlink to it
-- path missing → remove the symlink, leave nothing
+- file path missing → remove the symlink, leave nothing
 
-No dangling symlinks are possible.
+No dangling symlinks are possible. Older profiles get missing directory entries
+created when next activated.
 
-- **`/profile new <name>`** — empty directory. The right default: a `study`
-  profile exists precisely to not drag `code` config along.
+- **`/profile new <name>`** — empty directory resources and no file resources.
+  The right default: a `study` profile exists precisely to not drag `code`
+  config along.
 - **`/profile new <name> --from <other>`** — copy an existing profile as a
   starting point, for variants of a working setup.
 

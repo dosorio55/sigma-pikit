@@ -5,8 +5,8 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { loadManifest, type Manifest } from "./manifest.js";
 import {
-  activeProfile, applyProfile, clearActiveProfile, createProfile, findMigrations,
-  listProfiles, materializeProfile, migrate, profileDir, setActiveProfile,
+  activeProfile, applyProfile, clearActiveProfile, createProfile, ensureProfileDirectories,
+  findMigrations, listProfiles, materializeProfile, migrate, profileDir, setActiveProfile,
 } from "./swap.js";
 import {
   claim, claimExclusive, register, release, releaseExclusive,
@@ -14,6 +14,23 @@ import {
 
 const DEFAULT_PROFILE = "code";
 const ENTRY_TYPE = "profiles";
+const CREATE_ACTION = "＋ Create new profile";
+const HELP_ACTION = "? Commands and help";
+const DISABLE_ACTION = "⚠ Disable profiles";
+
+function showHelp(ctx: ExtensionContext): void {
+  ctx.ui.notify(
+    [
+      "profiles commands:",
+      "/profile — choose a profile or action",
+      "/profile <name> — switch directly",
+      "/profile new <name> — create an empty profile",
+      "/profile new <name> --from <profile> — clone a profile",
+      "/profile disable — restore real config paths and disable profiles",
+    ].join("\n"),
+    "info",
+  );
+}
 
 /**
  * Manifest problems are worth saying out loud, once, when they matter. Entries
@@ -122,6 +139,7 @@ async function switchTo(
     return null;
   }
 
+  ensureProfileDirectories(manifest, target);
   const result = applyProfile(manifest, target);
   if (result.blocked.length > 0) {
     ctx.ui.notify(
@@ -141,9 +159,59 @@ export default function profiles(pi: ExtensionAPI) {
       const { manifest, ignored } = loadManifest();
       warnIgnored(ctx, ignored);
 
-      const [verb, ...rest] = args.trim().split(/\s+/).filter(Boolean);
-      const active = activeProfile();
+      let [verb, ...rest] = args.trim().split(/\s+/).filter(Boolean);
+      let active = activeProfile();
       const current = active ?? DEFAULT_PROFILE;
+
+      if (verb === "help" || verb === "--help" || verb === "-h") {
+        showHelp(ctx);
+        return;
+      }
+
+      // First run: adopt whatever is already in the agent dir as the default.
+      if (!verb && listProfiles().length === 0) {
+        createProfile(current);
+        setActiveProfile(current);
+        active = current;
+      }
+
+      if (!verb) {
+        if (!ctx.hasUI) {
+          showHelp(ctx);
+          ctx.ui.notify(`profiles: ${listProfiles().join(", ")} (active: ${current})`, "info");
+          return;
+        }
+
+        const profileOptions = listProfiles().map((p) => (p === current ? `${p}  (active)` : p));
+        const actions = [CREATE_ACTION, HELP_ACTION];
+        if (active) actions.push(DISABLE_ACTION);
+        const picked = await ctx.ui.select("Switch profile", [...profileOptions, ...actions]);
+        if (!picked) return;
+
+        if (picked === HELP_ACTION) {
+          showHelp(ctx);
+          return;
+        }
+        if (picked === DISABLE_ACTION) {
+          verb = "disable";
+        } else if (picked === CREATE_ACTION) {
+          const kind = await ctx.ui.select("Create profile", ["Empty profile", "Clone existing profile"]);
+          if (!kind) return;
+
+          let from: string | undefined;
+          if (kind === "Clone existing profile") {
+            from = await ctx.ui.select("Clone from", listProfiles());
+            if (!from) return;
+          }
+
+          const name = (await ctx.ui.input("Profile name", "e.g. study"))?.trim();
+          if (!name) return;
+          verb = "new";
+          rest = from ? [name, "--from", from] : [name];
+        } else {
+          verb = picked.split(/\s+/)[0];
+        }
+      }
 
       if (verb === "disable") {
         if (!active) {
@@ -205,7 +273,7 @@ export default function profiles(pi: ExtensionAPI) {
         const fromIndex = rest.indexOf("--from");
         const from = fromIndex >= 0 ? rest[fromIndex + 1] : undefined;
         try {
-          createProfile(name, from);
+          createProfile(name, from, manifest.directories);
           ctx.ui.notify(`profiles: created "${name}"${from ? ` from "${from}"` : " (empty)"}`, "info");
         } catch (err) {
           ctx.ui.notify(`profiles: ${(err as Error).message}`, "error");
@@ -213,24 +281,14 @@ export default function profiles(pi: ExtensionAPI) {
         return;
       }
 
-      // First run: adopt whatever is already in the agent dir as the default.
+      // A direct switch is also the first-use path, so preserve the existing
+      // configuration as the default profile before moving away from it.
       if (listProfiles().length === 0) {
         createProfile(current);
         setActiveProfile(current);
       }
 
-      let target = verb;
-      if (!target) {
-        if (!ctx.hasUI) {
-          ctx.ui.notify(`profiles: ${listProfiles().join(", ")} (active: ${current})`, "info");
-          return;
-        }
-        const options = listProfiles().map((p) => (p === current ? `${p}  (active)` : p));
-        const picked = await ctx.ui.select("Switch profile", options);
-        if (!picked) return;
-        target = picked.split(/\s+/)[0];
-      }
-
+      const target = verb;
       const alreadyActive = target === current;
       const outcome = await switchTo(ctx, manifest, target);
       if (!outcome) return;
