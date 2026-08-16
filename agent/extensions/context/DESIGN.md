@@ -1,7 +1,9 @@
 # context — design notes
 
-Status: **design only, no code yet.** This folder has no `index.ts`, so the
-`./agent/extensions/*/index.ts` glob does not pick it up and pi ignores it.
+Status: **built.** `index.ts` exists, so the glob picks it up and `/context` is
+registered. These notes are kept as the reasoning behind the shape; what changed
+once the API was checked against the source is recorded in
+[What changed in the build](#what-changed-in-the-build).
 
 ## Goal
 
@@ -155,9 +157,135 @@ No existing `/context` extension for pi was found (npm, GitHub, the official
 `examples/extensions` directory). pi has `/session` — "session file, ID,
 messages, tokens, and cost" — which is numbers without breakdown or visual.
 
-## Next decisions
+## Decisions, settled
 
-1. Grouping: by `sourceInfo.source`, or by MCP server / skill / builtin?
-2. Whether to show per-tool rows by default or only under `/context all`.
-3. Whether the compaction line is worth the extra glyph in the grid, or belongs
-   in the text summary only.
+1. **Grouping: by MCP server / extension / builtin**, not by `sourceInfo.source`.
+   The grouping key is the thing you could switch off. `sourceInfo.source`
+   reports where pi loaded the code from, which names nothing actionable.
+2. **Grouped totals by default, per-tool rows under `/context all`.** Per-tool
+   rows are what you want when hunting one fat schema and noise the rest of the
+   time.
+3. **The compaction mark goes in the grid**, plus one line of text. The grid is
+   what the eye lands on, and a bar drawn to the edge claims space that is not
+   yours. One glyph, and it is the one thing this view can say that the thing it
+   copies cannot.
+
+## What changed in the build
+
+The implementation details below came from reading the installed source rather
+than relying on the public API notes alone.
+
+### `ctx.getSystemPromptOptions()` exists
+
+The notes above treat `systemPromptOptions` as reachable only by capturing it in
+`before_agent_start` and reporting last-known values. That is obsolete:
+`ExtensionCommandContext` exposes `getSystemPromptOptions()` directly, so a
+command handler reads it on demand.
+
+This removes the one piece of standing state the design conceded, and with it the
+"no breakdown before the first turn" caveat. **v1 holds no state at all.**
+
+The sensitivity warning still stands and is honoured: `contextFiles` carries full
+file contents, and only the path and a token count ever leave `collect()`.
+
+### MCP grouping: the cache first, prefixes second
+
+`pi.getAllTools()` returns a flat name plus `sourceInfo`; the server is folded
+into the name prefix by `pi-mcp-adapter` via `formatToolName`. The first attempt
+here rebuilt those prefixes from `mcp.json` and matched on them. That is the
+fallback now, because prefix matching alone is wrong in three ways:
+
+- **It steals tools.** Matching runs on the name, so a server called `web`
+  captures an unrelated `web_search` from another extension. Attribution is now
+  gated on `sourceInfo.source` naming the adapter, and `builtin`/`sdk` are
+  checked first.
+- **It dies under `toolPrefix: none`.** No prefix, no match — and the old code
+  then listed every server as "costing nothing" while their schemas sat in the
+  request. That is the worst failure available to this plugin: confidently
+  backwards.
+- **One config file is not the config.** The adapter merges six JSON sources and
+  expands `imports` from host configs.
+
+So attribution goes through `mcp-cache.json` — the adapter's metadata cache,
+mapping each server to the tool names it registered. This is prefix-mode
+independent when ownership is unique; duplicate unprefixed names stay
+unattributed because current direct-tool selection, not cache order, decides
+which server registered one. Cached resources are converted through the
+adapter's `read_<resource>` naming rule before matching. Prefixes remain as the fallback
+for servers the cache has never seen, longest first so `db` cannot steal from
+`db-metadata`.
+
+Server *discovery* reads the JSON config sources, the `--mcp-config` override,
+and expands `imports` for the JSON host formats. It also follows
+`hostConfigDiscovery: "on"`; OpenCode's global and project files are both read,
+as they are merged by the adapter. Codex keeps its servers in TOML; parsing a
+second config language to label a row is not worth it.
+
+What is deliberately not reproduced is the adapter's merge order, credential
+stripping and validation. That means the server list is "what we could
+discover", never "what pi has" — which is why anything unattributable gets its
+own `MCP · server unknown` row at full cost, and why the presence of that row
+suppresses every idle-server claim.
+
+### Proxy mode is the real "costs nothing" case
+
+The design frames laziness as *connection* state. In the adapter it is sharper
+than that: in proxy mode there is a single `mcp` gateway tool standing in for
+every server, and no per-server schemas exist at all. Direct tools are the
+opt-in.
+
+So the honest, verifiable rule is not "is the server connected" — it is **is the
+tool in `getActiveTools()`**. If it is, its schema is in the request and it
+costs; if it is not, it costs zero whatever it weighs on disk. The gateway is
+listed as its own group, because it is the thing you actually pay for.
+
+### Token math: `estimateTokens` takes a message
+
+`estimateTokens(message: AgentMessage)`, not a string, so measured text is
+wrapped in a throwaway user message — the wrapper adds no characters of its own.
+
+Worth stating plainly: pi's estimate *is* `chars / 4`. Using the export is not
+about precision, it is about agreement with the code that triggers compaction.
+
+### Settings: `SettingsManager`, not a file read
+
+`reserveTokens` and `compaction.enabled` looked like a two-file read. They are
+not: pi ignores a project's `settings.json` entirely until the project is
+trusted, so reading it directly draws the compaction mark using a number pi is
+not using — in the one view whose job is predicting that moment.
+
+`SettingsManager.create(cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() })`
+is pi's own resolution, trust rule and per-key merge included.
+
+### Skills are conditional on the read tool
+
+`buildSystemPrompt` appends the skills block only when `read` is active
+(`if (hasRead && skills.length > 0)`). Counting them unconditionally invents a
+row *and* shrinks `base prompt` by the same amount to keep the total — two wrong
+numbers from one assumption. `selectedTools` on the options says whether to
+count them.
+
+The subtraction can still fail honestly: an extension that rewrites the system
+prompt in `before_agent_start` leaves an override in place that
+`getSystemPromptOptions()` never described. When the slices no longer fit inside
+the whole, the row says the prompt was rewritten rather than clamping a negative
+into a plausible-looking zero.
+
+### Double counting, avoided
+
+`buildSystemPrompt` folds context files and skills into the prompt string, while
+tool *schemas* travel separately in the request. So the report measures the
+prompt string once as a whole and breaks the two slices out of it — skills via
+`formatSkillsForPrompt`, the exact block pi ships — with the remainder shown as
+`base prompt`. Tool schemas are a separate top-level total, never added into the
+prompt figure.
+
+Context files are measured with the `<project_instructions path="…">` wrapper pi
+puts around them, so the slice matches what the prompt carries rather than the
+bare file. The `<project_context>` header and footer land in `base prompt`,
+which is what that row means.
+
+A negative remainder is not clamped into a plausible zero — see
+[Skills are conditional on the read tool](#skills-are-conditional-on-the-read-tool).
+It means the prompt in use is not the one these options describe, and the row
+says so.
