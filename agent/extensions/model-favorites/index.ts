@@ -281,7 +281,7 @@ export default function modelFavorites(pi: ExtensionAPI): void {
     handler,
   });
 
-  pi.registerShortcut("alt+l", {
+  pi.registerShortcut("alt+m", {
     description: "Open the favorite-aware model selector",
     handler: (ctx) => openPicker(pi, ctx),
   });
