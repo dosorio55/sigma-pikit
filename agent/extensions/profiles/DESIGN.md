@@ -310,6 +310,15 @@ created when next activated.
 - **`/profile new <name> --from <other>`** — copy an existing profile as a
   starting point, for variants of a working setup.
 
+### Deleting a profile
+
+`/profile delete <name>` and the picker action remove a profile directory. The
+active profile is never deletable because the live configuration paths point
+into it; switch away first. A profile held by another live Pi is refused too.
+Deletion requires typing the exact profile name, rather than a yes/no prompt, to
+make the destructive target explicit. Profile discovery is on demand, so no
+restart or watcher is needed after deletion.
+
 ## Disabling and uninstalling
 
 Once migration has happened, the top-level paths are links and the canonical
@@ -562,7 +571,8 @@ All open questions are resolved. Layout:
 2. Migration on demand, per path, on `/profile` invocation.
 3. Swap: `symlink` to temp name + `rename` (atomic); remove the symlink where the
    target profile lacks the path.
-4. `/profile` picker, `/profile <name>` direct, `/profile new <name> [--from X]`.
+4. `/profile` picker, `/profile <name>` direct, `/profile new <name> [--from X]`,
+   and confirmed deletion of inactive profiles.
 5. `ctx.reload()` + `ctx.newSession()`.
 6. Lockfile: refuse on conflict, warn on drift at session start.
 7. Profile stamped onto each session as a hidden custom entry.

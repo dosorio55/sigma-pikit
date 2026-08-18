@@ -67,6 +67,17 @@ function dropOwnEntry(): void {
   write(lock);
 }
 
+/** Find another live Pi instance using a profile. */
+export function holder(profile: string): Conflict | null {
+  const lock = read();
+  for (const [pid, held] of Object.entries(lock)) {
+    if (Number(pid) !== process.pid && held === profile) {
+      return { pid: Number(pid), profile: held };
+    }
+  }
+  return null;
+}
+
 /**
  * Refuse if another live pi holds a different profile.
  *

@@ -13,7 +13,7 @@ export const profileDir = (name: string) => join(profilesDir(), name);
 
 /** Reserved because they are files this plugin owns inside the profiles dir. */
 const RESERVED = new Set(["manifest.json", "active", "lock", "disable-lock"]);
-const COMMAND_NAMES = new Set(["new", "disable"]);
+const COMMAND_NAMES = new Set(["new", "delete", "disable"]);
 
 /**
  * Profile names become directory names, so they get the same treatment as
@@ -375,4 +375,12 @@ export function createProfile(name: string, from?: string, directories: string[]
   }
 
   for (const path of directories) mkdirSync(join(dir, path), { recursive: true });
+}
+
+/** Remove an inactive profile after the command layer has confirmed ownership. */
+export function deleteProfile(name: string): void {
+  if (!validName(name) || !listProfiles().includes(name)) {
+    throw new Error(`no profile "${name}"`);
+  }
+  rmSync(profileDir(name), { recursive: true, force: true });
 }

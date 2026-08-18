@@ -24,6 +24,7 @@ the two stay separately installable and neither needs the other.
 /profile study                # switch directly
 /profile new study            # create an empty profile
 /profile new study --from code  # create it as a copy
+/profile delete study         # permanently delete an inactive profile
 /profile disable              # restore real top-level paths before uninstalling
 ```
 
@@ -69,8 +70,13 @@ ignore `profiles/active`, `profiles/lock` and `profiles/disable-lock`, which are
 machine-local.
 
 Profile names must match `[A-Za-z0-9][A-Za-z0-9._-]*`; plugin-owned names and
-command verbs (`active`, `lock`, `disable-lock`, `manifest.json`, `new`, `disable`) are reserved.
-`--from` only accepts an existing profile.
+command verbs (`active`, `lock`, `disable-lock`, `manifest.json`, `new`, `delete`,
+`disable`) are reserved. `--from` only accepts an existing profile.
+
+Deleting is available through `/profile delete <name>` and the `/profile` picker.
+It refuses to delete the active profile or one held by another live Pi instance,
+and requires typing the profile name exactly before removing it. No restart is
+needed; the profile list is read on each command.
 
 Switching always starts a new session: the old transcript references tools the
 new profile may not register. Running `/profile <current>` does not no-op — it

@@ -5,16 +5,18 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { loadManifest, type Manifest } from "./manifest.js";
 import {
-  activeProfile, applyProfile, clearActiveProfile, createProfile, ensureProfileDirectories,
-  findMigrations, listProfiles, materializeProfile, migrate, profileDir, setActiveProfile,
+  activeProfile, applyProfile, clearActiveProfile, createProfile, deleteProfile,
+  ensureProfileDirectories, findMigrations, listProfiles, materializeProfile, migrate,
+  profileDir, setActiveProfile,
 } from "./swap.js";
 import {
-  claim, claimExclusive, register, release, releaseExclusive,
+  claim, claimExclusive, holder, register, release, releaseExclusive,
 } from "./lock.js";
 
 const DEFAULT_PROFILE = "code";
 const ENTRY_TYPE = "profiles";
 const CREATE_ACTION = "＋ Create new profile";
+const DELETE_ACTION = "− Delete profile";
 const HELP_ACTION = "? Commands and help";
 const DISABLE_ACTION = "⚠ Disable profiles";
 
@@ -26,6 +28,7 @@ function showHelp(ctx: ExtensionContext): void {
       "/profile <name> — switch directly",
       "/profile new <name> — create an empty profile",
       "/profile new <name> --from <profile> — clone a profile",
+      "/profile delete <name> — permanently delete an inactive profile",
       "/profile disable — restore real config paths and disable profiles",
     ].join("\n"),
     "info",
@@ -185,6 +188,7 @@ export default function profiles(pi: ExtensionAPI) {
         const profileOptions = listProfiles().map((p) => (p === current ? `${p}  (active)` : p));
         const actions = [CREATE_ACTION, HELP_ACTION];
         if (active) actions.push(DISABLE_ACTION);
+        actions.push(DELETE_ACTION);
         const picked = await ctx.ui.select("Switch profile", [...profileOptions, ...actions]);
         if (!picked) return;
 
@@ -208,9 +212,77 @@ export default function profiles(pi: ExtensionAPI) {
           if (!name) return;
           verb = "new";
           rest = from ? [name, "--from", from] : [name];
+        } else if (picked === DELETE_ACTION) {
+          const deletable = listProfiles().filter((name) => name !== active);
+          if (deletable.length === 0) {
+            ctx.ui.notify("profiles: no inactive profiles to delete", "info");
+            return;
+          }
+          const name = await ctx.ui.select("Delete profile", deletable);
+          if (!name) return;
+          verb = "delete";
+          rest = [name];
         } else {
           verb = picked.split(/\s+/)[0];
         }
+      }
+
+      if (verb === "delete") {
+        const name = rest[0];
+        if (!name) {
+          ctx.ui.notify("usage: /profile delete <name>", "error");
+          return;
+        }
+        if (!listProfiles().includes(name)) {
+          ctx.ui.notify(`profiles: no profile "${name}"`, "error");
+          return;
+        }
+        if (name === active) {
+          ctx.ui.notify(
+            `profiles: "${name}" is active — switch to another profile before deleting it`,
+            "error",
+          );
+          return;
+        }
+        if (!ctx.hasUI) {
+          ctx.ui.notify("profiles: deleting a profile requires interactive confirmation", "error");
+          return;
+        }
+
+        const conflict = holder(name);
+        if (conflict) {
+          ctx.ui.notify(
+            `profiles: pi (pid ${conflict.pid}) is using profile "${name}" — close it first`,
+            "error",
+          );
+          return;
+        }
+
+        const confirmation = await ctx.ui.input(
+          `Permanently delete profile "${name}"?`,
+          `Type "${name}" to confirm`,
+        );
+        if (confirmation !== name) {
+          ctx.ui.notify("profiles: deletion cancelled", "info");
+          return;
+        }
+
+        const raced = holder(name);
+        if (raced) {
+          ctx.ui.notify(
+            `profiles: pi (pid ${raced.pid}) is using profile "${name}" — close it first`,
+            "error",
+          );
+          return;
+        }
+
+        try {
+          deleteProfile(name);
+          ctx.ui.notify(`profiles: deleted "${name}"`, "info");
+        } catch (err) {
+          ctx.ui.notify(`profiles: ${(err as Error).message}`, "error");
+        }
+        return;
       }
 
       if (verb === "disable") {
