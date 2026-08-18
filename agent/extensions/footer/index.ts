@@ -4,6 +4,7 @@ import type { TUI } from "@earendil-works/pi-tui";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 
 import { formatTokens, formatCost } from "./format.js";
+import { activeProfile } from "./profile.js";
 
 interface Part {
   text: string;
@@ -70,7 +71,13 @@ function formatPath(cwd: string): string {
  * Reúne todas las partes de la línea principal (todo menos la ruta), cada una
  * con su prioridad de eliminación cuando falta espacio.
  */
-function buildParts(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branch: string | null): Part[] {
+function buildParts(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  theme: Theme,
+  branch: string | null,
+  profile: string | null,
+): Part[] {
   const dim = (t: string) => theme.fg("dim", t);
   const parts: Part[] = [];
 
@@ -78,6 +85,13 @@ function buildParts(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branc
   let model = theme.fg("accent", "π ") + modelName;
   if (ctx.model?.provider) model += " " + dim(`(${ctx.model.provider})`);
   parts.push({ text: model, side: "l", drop: 0 });
+
+  // Indicador de modo: es lo único que dice qué configuración está cargada, y no
+  // se puede deducir de nada más en pantalla. Por eso aguanta más que la rama o
+  // los tokens cuando falta sitio, aunque no es intocable como el modelo.
+  if (profile) {
+    parts.push({ text: dim("◆ ") + theme.fg("accent", profile), side: "l", drop: 60 });
+  }
 
   if (branch) {
     parts.push({ text: theme.fg("success", branch), side: "l", drop: 40 });
@@ -166,16 +180,29 @@ function buildPathLine(ctx: ExtensionContext, theme: Theme, width: number): stri
   return truncateToWidth(" ".repeat(MARGIN_L) + theme.fg("dim", formatPath(cwd)), Math.max(0, width - MARGIN_R));
 }
 
-/** Línea 2: modelo, git, contexto, tokens, thinking, coste (space-between). */
-function buildMainLine(pi: ExtensionAPI, ctx: ExtensionContext, theme: Theme, branch: string | null, width: number): string {
-  return compose(width, buildParts(pi, ctx, theme, branch));
+/** Línea 2: modelo, perfil, git, contexto, tokens, thinking, coste (space-between). */
+function buildMainLine(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  theme: Theme,
+  branch: string | null,
+  profile: string | null,
+  width: number,
+): string {
+  return compose(width, buildParts(pi, ctx, theme, branch, profile));
 }
 
 export default function footer(pi: ExtensionAPI) {
   let currentCtx: ExtensionContext | null = null;
+  // El perfil solo cambia con un swap, y un swap siempre acaba en sesión nueva o
+  // en reload; los dos vuelven a disparar `session_start`. Así que leerlo aquí
+  // basta para que nunca esté obsoleto, y `render` —que corre en cada pulsación—
+  // no toca el disco.
+  let currentProfile: string | null = null;
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     currentCtx = ctx;
+    currentProfile = activeProfile();
     if (!ctx.hasUI) return;
 
     ctx.ui.setFooter((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
@@ -189,7 +216,7 @@ export default function footer(pi: ExtensionAPI) {
           const branch = footerData.getGitBranch();
           try {
             const pathLine = buildPathLine(currentCtx, theme, width);
-            const mainLine = buildMainLine(pi, currentCtx, theme, branch, width);
+            const mainLine = buildMainLine(pi, currentCtx, theme, branch, currentProfile, width);
             return [pathLine, mainLine];
           } catch {
             return [];
