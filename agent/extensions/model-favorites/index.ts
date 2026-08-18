@@ -276,17 +276,12 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialQuery 
 export default function modelFavorites(pi: ExtensionAPI): void {
   const handler = async (args: string, ctx: ExtensionContext) => openPicker(pi, ctx, args.trim());
 
-  pi.registerCommand("model", {
-    description: "Select a model with favorites",
-    handler,
-  });
-
   pi.registerCommand("models", {
     description: "Select a model with favorites",
     handler,
   });
 
-  pi.registerShortcut("alt+m", {
+  pi.registerShortcut("alt+l", {
     description: "Open the favorite-aware model selector",
     handler: (ctx) => openPicker(pi, ctx),
   });
