@@ -11,22 +11,22 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `footer`  | Two-line footer: project path, model, active profile, branch, context bar, tokens, thinking level and cost. | none |
 | `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
-| `model-favorites` | Replaces `/model` (and adds `/models`) with a searchable model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — the model catalogue and favorites file are read only when the picker opens |
+| `model-favorites` | Adds `/models` and `Alt+L` for a searchable model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — the model catalogue and favorites file are read only when the picker opens |
 
 ### `model-favorites`
 
 ```bash
-/model          # open the favorite-aware model picker
-/model sonnet   # open with an initial search
-/models         # alias
+/models          # open the favorite-aware model picker
+/models sonnet   # open with an initial search
 ```
 
-Press `Alt+M` to open this picker directly. Inside it, `Ctrl+F` toggles the
-highlighted model as a favorite. Favorites are stored in
+Press `Alt+L` to open this picker directly. The built-in `/model` command remains
+unchanged. Inside the favorites picker, `Ctrl+F` toggles the highlighted model as
+a favorite. Favorites are stored in
 `~/.pi/agent/model-favorites.json` and matching favorites are shown before other
 search results.
 
-This is a replacement picker rather than a modification of pi's built-in picker:
+This is a separate picker rather than a modification of pi's built-in picker:
 pi does not currently expose hooks for changing that component's sorting or key
 handling. The extension uses pi's public model registry and `setModel()` API.
 
