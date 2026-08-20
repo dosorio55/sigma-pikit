@@ -243,8 +243,10 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialQuery 
   }
 
   const favorites = loadFavorites();
-  const selected = await ctx.ui.custom<AvailableModel | null>((tui, theme, keybindings, done) =>
-    new FavoriteModelPicker(
+  let requestRender: (() => void) | undefined;
+  const selected = await ctx.ui.custom<AvailableModel | null>((tui, theme, keybindings, done) => {
+    requestRender = () => tui.requestRender();
+    return new FavoriteModelPicker(
       tui,
       theme,
       keybindings,
@@ -264,13 +266,15 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialQuery 
         }
       },
       initialQuery,
-    ),
-  );
+    );
+  });
 
   if (!selected) return;
   if (!(await pi.setModel(selected))) {
     ctx.ui.notify(`Could not select ${modelKey(selected)}: authentication is unavailable.`, "error");
+    return;
   }
+  requestRender?.();
 }
 
 export default function modelFavorites(pi: ExtensionAPI): void {
