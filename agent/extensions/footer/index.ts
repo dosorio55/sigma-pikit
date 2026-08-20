@@ -18,12 +18,13 @@ interface Usage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  lastContextTokens: number;
 }
 
 /** Suma tokens/coste de todos los mensajes del asistente en la rama actual. */
 function collectUsage(ctx: ExtensionContext): Usage {
   const branch = ctx.sessionManager?.getBranch?.() ?? [];
-  const u: Usage = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const u: Usage = { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, lastContextTokens: 0 };
 
   for (const entry of branch as Array<{ type: string; message?: { role: string; usage?: AssistantMessage["usage"]; stopReason?: string } }>) {
     if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
@@ -34,6 +35,7 @@ function collectUsage(ctx: ExtensionContext): Usage {
     u.output += m.usage.output;
     u.cacheRead += m.usage.cacheRead;
     u.cacheWrite += m.usage.cacheWrite;
+    u.lastContextTokens = m.usage.input + m.usage.output + m.usage.cacheRead + m.usage.cacheWrite;
   }
   return u;
 }
@@ -97,13 +99,11 @@ function buildParts(
 
   const u = collectUsage(ctx);
 
-  const contextUsage = ctx.getContextUsage();
-  const window = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+  const window = ctx.model?.contextWindow ?? 0;
   if (window > 0) {
-    const pct = contextUsage?.percent ?? null;
-    parts.push({ text: contextBar(theme, pct ?? 0), side: "r", drop: 20 });
-    const tokens = contextUsage?.tokens;
-    const label = `${tokens === null || tokens === undefined ? "?" : formatTokens(tokens)}/${formatTokens(window)} ${pct === null ? "?" : `${pct.toFixed(0)}%`}`;
+    const pct = (u.lastContextTokens / window) * 100;
+    parts.push({ text: contextBar(theme, pct), side: "r", drop: 20 });
+    const label = `${formatTokens(u.lastContextTokens)}/${formatTokens(window)} ${pct.toFixed(0)}%`;
     parts.push({ text: theme.fg("muted", label), side: "r", drop: 50 });
   }
 
@@ -194,7 +194,6 @@ function buildMainLine(
 
 export default function footer(pi: ExtensionAPI) {
   let currentCtx: ExtensionContext | null = null;
-  let requestFooterRender: (() => void) | null = null;
   // El perfil solo cambia con un swap, y un swap siempre acaba en sesión nueva o
   // en reload; los dos vuelven a disparar `session_start`. Así que leerlo aquí
   // basta para que nunca esté obsoleto, y `render` —que corre en cada pulsación—
@@ -207,15 +206,10 @@ export default function footer(pi: ExtensionAPI) {
     if (!ctx.hasUI) return;
 
     ctx.ui.setFooter((tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
-      const requestRender = () => tui.requestRender();
-      requestFooterRender = requestRender;
-      const unsub = footerData.onBranchChange(requestRender);
+      const unsub = footerData.onBranchChange(() => tui.requestRender());
 
       return {
-        dispose() {
-          unsub();
-          if (requestFooterRender === requestRender) requestFooterRender = null;
-        },
+        dispose: unsub,
         invalidate() {},
         render(width: number): string[] {
           if (!currentCtx) return [];
@@ -231,6 +225,4 @@ export default function footer(pi: ExtensionAPI) {
       };
     });
   });
-
-  pi.on("session_compact", () => requestFooterRender?.());
 }
