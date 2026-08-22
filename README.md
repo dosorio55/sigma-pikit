@@ -12,6 +12,57 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
 | `model-favorites` | Adds `/models` and `Alt+M` for a searchable, price-aware model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — model metadata and configuration files are read only when the picker opens |
+| `handoff` | `/handoff [focus]` creates a compact continuation prompt in a new session, then either switches to it or saves it for later. | none — one model request and session write when invoked |
+
+### `handoff`
+
+```bash
+/handoff
+/handoff focus on the auth token issue and the proposed solution
+/handoff-add-model
+```
+
+With no arguments, the command asks for an optional focus; leaving it blank
+produces a general handoff. It summarizes the compaction-aware active context,
+opens the result for editing, then offers to save and switch, save for later, or
+cancel. A saved handoff is a normal named Pi session, linked to its parent and
+available through `/resume`; its generated context is the first user message.
+
+Preferred summarization models can be listed in `~/.pi/agent/handoff.json`:
+
+```json
+{
+  "thinkingLevel": "low",
+  "models": [
+    "google/gemini-2.5-flash",
+    "anthropic/claude-haiku-4-5"
+  ]
+}
+```
+
+Models are tried in order. Missing models, unavailable authentication, API
+errors and empty responses fall through to the next candidate. The model active
+in the current session is always added as the final fallback. Cancelling with
+Escape stops immediately instead of trying another model. The configuration is
+optional; without it, `/handoff` uses the active model directly.
+
+`thinkingLevel` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or
+`max` and defaults to `low` when omitted. It is sent to reasoning-capable models;
+non-reasoning models ignore it. `off` means the handoff does not request an
+explicit reasoning effort, though a provider may still perform reasoning that
+its model cannot disable. The completion notification reports the effective
+handoff effort.
+
+`/handoff-add-model` opens a searchable picker containing authenticated models
+that are not already configured. The selected model's exact `provider/model-id`
+is appended to the list. A missing file is created; malformed JSON is reported
+and left untouched. Writes use a temporary file and atomic rename so a failed
+write cannot leave a partial configuration. Ordering remains manual.
+
+**Idle cost: none.** The extension registers one command and leaves no process,
+timer, watcher or connection running. It reads the small configuration file,
+makes model requests until one succeeds, and writes one session only when
+`/handoff` is invoked.
 
 ### `model-favorites`
 
