@@ -11,7 +11,7 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `footer`  | Two-line footer: project path, model, active profile, branch, context bar, tokens, thinking level and cost. | none |
 | `wsl-clipboard-image` | Pastes images from the Windows clipboard into the prompt with `Alt+V` (or the `wsl-paste-image` command). Reads the native clipboard via `powershell.exe` and tries several formats (PNG, file, bitmap), so it also works with `Win+V` history. WSL only. | none — `powershell.exe` only runs on demand |
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
-| `model-favorites` | Adds `/models` and `Alt+L` for a searchable model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — the model catalogue and favorites file are read only when the picker opens |
+| `model-favorites` | Adds `/models` and `Alt+M` for a searchable, price-aware model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — model metadata and configuration files are read only when the picker opens |
 | `handoff` | `/handoff [focus]` creates a compact continuation prompt in a new session, then either switches to it or saves it for later. | none — one model request and session write when invoked |
 
 ### `handoff`
@@ -71,19 +71,44 @@ makes model requests until one succeeds, and writes one session only when
 /models sonnet   # open with an initial search
 ```
 
-Press `Alt+L` to open this picker directly. The built-in `/model` command remains
+Press `Alt+M` to open this picker directly. The built-in `/model` command remains
 unchanged. Inside the favorites picker, `Ctrl+F` toggles the highlighted model as
 a favorite. Favorites are stored in
 `~/.pi/agent/model-favorites.json` and matching favorites are shown before other
 search results.
+
+Prices are the input (`↓`) and output (`↑`) rates in US dollars per million
+tokens. They come from pi's model metadata and are right-aligned when the terminal
+is wide enough. A dotted leader connects the selected model to its price; the
+entire price column and leader are omitted on narrow terminals. Press `Tab` to
+cycle between favorites-first, ascending-price and descending-price
+sorting. Price sorting uses output price first and input price as the tiebreaker;
+models without pricing remain last. Optional manual overrides can be added to
+`~/.pi/agent/model-prices.json`:
+
+```json
+{
+  "version": 1,
+  "prices": {
+    "anthropic/claude-sonnet-4-6": {
+      "input": 3,
+      "output": 15
+    }
+  }
+}
+```
+
+The keys use `provider/model-id`. Overrides take precedence over model metadata,
+so the same file also supports custom models or manual price updates.
 
 This is a separate picker rather than a modification of pi's built-in picker:
 pi does not currently expose hooks for changing that component's sorting or key
 handling. The extension uses pi's public model registry and `setModel()` API.
 
 **Idle cost: none.** It registers commands and a shortcut, but leaves no process,
-timer, watcher or connection running. The small favorites file is read on demand
-when the picker opens; models come from pi's catalogue already held in memory.
+timer, watcher or connection running. The small favorites and optional price files
+are read on demand when the picker opens; models come from pi's catalogue already
+held in memory.
 | `profiles` | Several pi configurations in one install, switched with `/profile`. Swaps symlinks in `~/.pi/agent` so other plugins read a different `mcp.json`, `agents/`, `skills/`, `prompts/` and `AGENTS.md`, then starts a new session. | none — a few path operations per switch, no watchers |
 
 The `◆ <name>` segment appears only when `profiles` is in use — `footer` reads

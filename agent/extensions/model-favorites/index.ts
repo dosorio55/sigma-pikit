@@ -16,17 +16,30 @@ import {
   matchesKey,
   Spacer,
   Text,
+  truncateToWidth,
+  type Component,
   type TUI,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 
 const FAVORITES_PATH = join(getAgentDir(), "model-favorites.json");
+const PRICES_PATH = join(getAgentDir(), "model-prices.json");
 const MAX_VISIBLE = 10;
 
 type AvailableModel = Model<any>;
+type ModelPrice = { input: number; output: number };
+type SortMode = "favorites" | "price-asc" | "price-desc";
+
+const SORT_MODES: SortMode[] = ["favorites", "price-asc", "price-desc"];
 
 type FavoritesFile = {
   version: 1;
   favorites: string[];
+};
+
+type PricesFile = {
+  version: 1;
+  prices: Record<string, ModelPrice>;
 };
 
 function modelKey(model: AvailableModel): string {
@@ -51,6 +64,60 @@ function saveFavorites(favorites: ReadonlySet<string>, path = FAVORITES_PATH): v
   renameSync(tempPath, path);
 }
 
+function loadPrices(path = PRICES_PATH): Map<string, ModelPrice> {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PricesFile>;
+    if (parsed.version !== 1 || !parsed.prices || typeof parsed.prices !== "object") return new Map();
+    return new Map(
+      Object.entries(parsed.prices).filter(
+        (entry): entry is [string, ModelPrice] =>
+          typeof entry[1]?.input === "number" &&
+          Number.isFinite(entry[1].input) &&
+          entry[1].input >= 0 &&
+          typeof entry[1]?.output === "number" &&
+          Number.isFinite(entry[1].output) &&
+          entry[1].output >= 0,
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+function modelPrice(
+  model: AvailableModel,
+  prices: ReadonlyMap<string, ModelPrice>,
+): ModelPrice | undefined {
+  return prices.get(modelKey(model)) ?? model.cost;
+}
+
+function formatRate(rate: number): string {
+  return Number.isInteger(rate) ? String(rate) : String(Number(rate.toFixed(2)));
+}
+
+function formatPrice(price: ModelPrice): string {
+  return `↓$${formatRate(price.input)} ↑$${formatRate(price.output)}`;
+}
+
+class ModelRow implements Component {
+  constructor(
+    private readonly label: string,
+    private readonly price: string | undefined,
+    private readonly selected: boolean,
+  ) {}
+
+  render(width: number): string[] {
+    if (!this.price || visibleWidth(this.label) + visibleWidth(this.price) + 2 > width) {
+      return [truncateToWidth(this.label, width)];
+    }
+    const gapWidth = width - visibleWidth(this.label) - visibleWidth(this.price);
+    const gap = this.selected ? ` ${"·".repeat(gapWidth - 2)} ` : " ".repeat(gapWidth);
+    return [`${this.label}${gap}${this.price}`];
+  }
+
+  invalidate(): void {}
+}
+
 function favoriteFirst(models: AvailableModel[], favorites: ReadonlySet<string>): AvailableModel[] {
   const favoriteModels: AvailableModel[] = [];
   const otherModels: AvailableModel[] = [];
@@ -60,11 +127,32 @@ function favoriteFirst(models: AvailableModel[], favorites: ReadonlySet<string>)
   return [...favoriteModels, ...otherModels];
 }
 
+function sortModels(
+  models: AvailableModel[],
+  mode: SortMode,
+  favorites: ReadonlySet<string>,
+  prices: ReadonlyMap<string, ModelPrice>,
+): AvailableModel[] {
+  if (mode === "favorites") return favoriteFirst(models, favorites);
+
+  const direction = mode === "price-asc" ? 1 : -1;
+  return [...models].sort((a, b) => {
+    const aPrice = modelPrice(a, prices);
+    const bPrice = modelPrice(b, prices);
+    if (!aPrice && !bPrice) return 0;
+    if (!aPrice) return 1;
+    if (!bPrice) return -1;
+    return direction * (aPrice.output - bPrice.output || aPrice.input - bPrice.input);
+  });
+}
+
 class FavoriteModelPicker extends Container implements Focusable {
   private readonly searchInput = new Input();
+  private readonly sortLabel = new Text("", 0, 0);
   private readonly list = new Container();
   private filtered: AvailableModel[] = [];
   private selectedIndex = 0;
+  private sortMode: SortMode = "favorites";
   private _focused = false;
 
   get focused(): boolean {
@@ -83,6 +171,7 @@ class FavoriteModelPicker extends Container implements Focusable {
     private readonly models: AvailableModel[],
     private readonly currentModel: AvailableModel | undefined,
     private readonly favorites: Set<string>,
+    private readonly prices: ReadonlyMap<string, ModelPrice>,
     private readonly onSelect: (model: AvailableModel) => void,
     private readonly onCancel: () => void,
     private readonly onFavoritesChanged: () => void,
@@ -93,7 +182,14 @@ class FavoriteModelPicker extends Container implements Focusable {
     this.addChild(new DynamicBorder((text: string) => this.theme.fg("accent", text)));
     this.addChild(new Spacer(1));
     this.addChild(new Text(this.theme.fg("accent", this.theme.bold("Select a model")), 0, 0));
-    this.addChild(new Text(this.theme.fg("dim", "Ctrl+F favorite · ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
+    this.addChild(
+      new Text(
+        this.theme.fg("dim", "Tab sort · Ctrl+F favorite · ↑↓ navigate · Enter select · Esc cancel"),
+        0,
+        0,
+      ),
+    );
+    this.addChild(this.sortLabel);
     this.addChild(new Spacer(1));
 
     this.searchInput.setValue(initialQuery);
@@ -141,6 +237,11 @@ class FavoriteModelPicker extends Container implements Focusable {
       return;
     }
 
+    if (matchesKey(data, "tab")) {
+      this.cycleSortMode();
+      return;
+    }
+
     this.searchInput.handleInput(data);
     this.filter(this.searchInput.getValue());
     this.tui.requestRender();
@@ -158,9 +259,24 @@ class FavoriteModelPicker extends Container implements Focusable {
     const matched = query.trim()
       ? fuzzyFilter(sorted, query, (model) => `${model.provider} ${model.id} ${model.name}`)
       : sorted;
-    this.filtered = favoriteFirst(matched, this.favorites);
+    this.filtered = sortModels(matched, this.sortMode, this.favorites, this.prices);
     this.selectedIndex = 0;
     this.rebuildList();
+  }
+
+  private cycleSortMode(): void {
+    const selectedKey = this.filtered[this.selectedIndex]
+      ? modelKey(this.filtered[this.selectedIndex]!)
+      : undefined;
+    const currentIndex = SORT_MODES.indexOf(this.sortMode);
+    this.sortMode = SORT_MODES[(currentIndex + 1) % SORT_MODES.length] ?? "favorites";
+    this.filter(this.searchInput.getValue());
+    if (selectedKey) {
+      const selectedIndex = this.filtered.findIndex((model) => modelKey(model) === selectedKey);
+      this.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    }
+    this.rebuildList();
+    this.tui.requestRender();
   }
 
   private selectCurrent(): void {
@@ -187,6 +303,12 @@ class FavoriteModelPicker extends Container implements Focusable {
 
   private rebuildList(): void {
     this.list.clear();
+    const labels: Record<SortMode, string> = {
+      favorites: "Favorites",
+      "price-asc": "Price asc",
+      "price-desc": "Price desc",
+    };
+    this.sortLabel.setText(this.theme.fg("muted", `Sort: ${labels[this.sortMode]}`));
 
     const start = Math.max(
       0,
@@ -206,7 +328,14 @@ class FavoriteModelPicker extends Container implements Focusable {
       const id = selected ? this.theme.fg("accent", model.id) : model.id;
       const provider = this.theme.fg("muted", `[${model.provider}]`);
       const check = current ? this.theme.fg("success", " ✓") : "";
-      this.list.addChild(new Text(`${prefix} ${star} ${id} ${provider}${check}`, 0, 0));
+      const price = modelPrice(model, this.prices);
+      this.list.addChild(
+        new ModelRow(
+          `${prefix} ${star} ${id} ${provider}${check}`,
+          price ? this.theme.fg("muted", formatPrice(price)) : undefined,
+          selected,
+        ),
+      );
     }
 
     if (this.filtered.length === 0) {
@@ -243,6 +372,7 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialQuery 
   }
 
   const favorites = loadFavorites();
+  const prices = loadPrices();
   let requestRender: (() => void) | undefined;
   const selected = await ctx.ui.custom<AvailableModel | null>((tui, theme, keybindings, done) => {
     requestRender = () => tui.requestRender();
@@ -253,6 +383,7 @@ async function openPicker(pi: ExtensionAPI, ctx: ExtensionContext, initialQuery 
       models,
       ctx.model,
       favorites,
+      prices,
       done,
       () => done(null),
       () => {
@@ -291,4 +422,13 @@ export default function modelFavorites(pi: ExtensionAPI): void {
   });
 }
 
-export { favoriteFirst, loadFavorites, modelKey, saveFavorites };
+export {
+  favoriteFirst,
+  formatPrice,
+  loadFavorites,
+  loadPrices,
+  modelKey,
+  modelPrice,
+  saveFavorites,
+  sortModels,
+};
