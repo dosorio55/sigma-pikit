@@ -5,7 +5,7 @@ export default function usage(pi: ExtensionAPI): void {
   let pending = false;
 
   pi.registerCommand("usage", {
-    description: "Show Codex allowance remaining and reset times",
+    description: "Show Codex allowance, reset times, credits and available resets",
     handler: async (_args, ctx) => {
       if (pending) {
         ctx.ui.notify("A Codex usage request is already running.", "info");
