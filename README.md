@@ -13,7 +13,7 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
 | `model-favorites` | Adds `/models` and `Alt+M` for a searchable, price-aware model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — model metadata and configuration files are read only when the picker opens |
 | `handoff` | `/handoff [focus]` creates a compact continuation prompt in a new session, then either switches to it or saves it for later. | none — one model request and session write when invoked |
-| `usage` | `/usage`: remaining Codex subscription allowance and reset times for each reported window. | none — one HTTP request only when invoked |
+| `usage` | `/usage`: remaining Codex allowance, reset times, credit balance and reset-credit expiry details. | none — one or two HTTP requests only when invoked |
 
 ### `usage`
 
@@ -28,6 +28,18 @@ absent five-hour or weekly window is not invented. This is subscription quota,
 not session token usage, API billing or the general ChatGPT message allowance.
 API keys are not supported. The endpoint is internal and may change.
 
+The same response also supplies the credit balance (`credits`), including its
+unlimited status, and available resets (`rate_limit_reset_credits.available_count`).
+Missing values are shown as `not reported`, not zero. When resets are available,
+a second request to `/wham/rate-limit-reset-credits` retrieves each reset's title
+(or type), status, grant date and expiry. Remaining time uses nonzero months
+(`mo`, approximated as 30 days), weeks (`w`), days (`d`), hours (`h`) and minutes
+(`m`), for both quota resets and credit expiry. The exact local date is also
+shown; an absent expiry is shown as `expiry not reported`, not unlimited.
+The detail response supplies the latest available count. If that request fails,
+quotas and credits are still shown with a detail-unavailable notice. No reset
+credits are consumed.
+
 Requests time out after ten seconds and refuse redirects so credentials cannot
 be forwarded to another host. Errors are displayed without response bodies or
 tokens. Results are notifications, not model-context messages.
@@ -39,7 +51,7 @@ node --experimental-strip-types --test agent/extensions/usage/*.test.ts
 
 **Idle cost: none.** No processes, polling, timers, watchers, event listeners or
 connections are started at idle. Only `/usage` resolves authentication and makes
-a request; simultaneous invocations are ignored while one is pending.
+up to two requests; simultaneous invocations are ignored while one is pending.
 
 ### `handoff`
 
