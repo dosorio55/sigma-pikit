@@ -13,6 +13,33 @@ The sum of my pieces, kept separate so I can install and change only what I want
 | `context` | `/context`: what is filling the context window, itemised — system prompt, skills, context files and tool schemas grouped by MCP server or extension, with the compaction point marked. | none — computed when you run the command |
 | `model-favorites` | Adds `/models` and `Alt+M` for a searchable, price-aware model picker where `Ctrl+F` toggles favorites and favorites rank first. | none — model metadata and configuration files are read only when the picker opens |
 | `handoff` | `/handoff [focus]` creates a compact continuation prompt in a new session, then either switches to it or saves it for later. | none — one model request and session write when invoked |
+| `usage` | `/usage`: remaining Codex subscription allowance and reset times for each reported window. | none — one HTTP request only when invoked |
+
+### `usage`
+
+Run `/usage` after signing in with `/login` → OpenAI Codex. It works even when
+another provider's model is selected. Authentication and token renewal use Pi's
+model registry; the extension does not read or write credential files.
+
+The command shows the remaining percentage, time until reset and local reset date
+for each window returned by `https://chatgpt.com/backend-api/wham/usage`. Windows
+are labelled by their actual duration, not their position in the response; an
+absent five-hour or weekly window is not invented. This is subscription quota,
+not session token usage, API billing or the general ChatGPT message allowance.
+API keys are not supported. The endpoint is internal and may change.
+
+Requests time out after ten seconds and refuse redirects so credentials cannot
+be forwarded to another host. Errors are displayed without response bodies or
+tokens. Results are notifications, not model-context messages.
+
+```bash
+pi -ne -e ./agent/extensions/usage/index.ts
+node --experimental-strip-types --test agent/extensions/usage/*.test.ts
+```
+
+**Idle cost: none.** No processes, polling, timers, watchers, event listeners or
+connections are started at idle. Only `/usage` resolves authentication and makes
+a request; simultaneous invocations are ignored while one is pending.
 
 ### `handoff`
 
