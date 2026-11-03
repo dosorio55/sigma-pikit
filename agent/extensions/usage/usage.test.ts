@@ -127,7 +127,7 @@ test("command resolves Codex auth on demand even with another active provider", 
     modelRegistry: {
       async getProviderAuth(provider: string) {
         authCalls++;
-        assert.equal(provider, "openai-codex");
+        assert.equal(provider, "openai");
         return { auth: { apiKey: token } };
       },
     },

@@ -36,7 +36,7 @@ export function accountIdFromToken(token: string): string {
       return accountId;
     }
   } catch {}
-  throw new Error("ChatGPT OAuth authentication is required. Use /login with OpenAI Codex.");
+  throw new Error("ChatGPT OAuth authentication is required. Use /login → OpenAI → Sign in with ChatGPT (or OpenAI Codex (legacy)).");
 }
 
 export function parseUsage(value: unknown): Usage {
@@ -131,7 +131,7 @@ async function fetchJson(url: string, token: string): Promise<unknown> {
   }
   if (!response.ok) {
     await response.body?.cancel();
-    if (response.status === 401) throw new Error("Codex authentication expired. Use /login with OpenAI Codex.");
+    if (response.status === 401) throw new Error("Codex authentication expired. Use /login → OpenAI → Sign in with ChatGPT (or OpenAI Codex (legacy)).");
     if (response.status === 403) throw new Error("Codex denied access to usage (HTTP 403).");
     if (response.status === 429) throw new Error("Too many usage requests. Try again later.");
     throw new Error(`Codex usage request failed (HTTP ${response.status}).`);
