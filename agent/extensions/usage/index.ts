@@ -16,10 +16,14 @@ export default function usage(pi: ExtensionAPI): void {
         let token: string | undefined;
         let authFailed = false;
         let unsupportedAuth = false;
+        let incompatibleOAuth = false;
         for (const provider of ["openai", "openai-codex"]) {
           let candidate: string | undefined;
+          let source: string | undefined;
           try {
-            candidate = (await ctx.modelRegistry.getProviderAuth(provider))?.auth.apiKey;
+            const resolved = await ctx.modelRegistry.getProviderAuth(provider);
+            candidate = resolved?.auth.apiKey;
+            source = resolved?.source;
           } catch {
             authFailed = true;
             continue;
@@ -31,7 +35,8 @@ export default function usage(pi: ExtensionAPI): void {
             token = candidate;
             break;
           } catch {
-            unsupportedAuth = true;
+            if (source === "OAuth") incompatibleOAuth = true;
+            else unsupportedAuth = true;
           }
         }
         if (!token) {
@@ -39,7 +44,9 @@ export default function usage(pi: ExtensionAPI): void {
             throw new Error("Could not resolve Codex authentication. Use /login → OpenAI → Sign in with ChatGPT (or OpenAI Codex (legacy)).");
           }
           ctx.ui.notify(
-            unsupportedAuth
+            incompatibleOAuth
+              ? "You are signed in with OpenAI OAuth, but this token does not expose the ChatGPT account ID required by /usage. Configure /login → OpenAI Codex (legacy) for usage checks; keep your existing OpenAI login for models."
+              : unsupportedAuth
               ? "ChatGPT OAuth authentication is required; API keys are not supported. Use /login → OpenAI → Sign in with ChatGPT (or OpenAI Codex (legacy))."
               : "Use /login → OpenAI → Sign in with ChatGPT (or OpenAI Codex (legacy)) before checking usage.",
             "warning",
