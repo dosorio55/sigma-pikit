@@ -17,11 +17,15 @@ The sum of my pieces, kept separate so I can install and change only what I want
 
 ### `usage`
 
-Run `/usage` after signing in with `/login` → OpenAI → Sign in with ChatGPT.
-OpenAI Codex (legacy) logins are also supported. The command checks OpenAI first,
-then falls back to the legacy provider if no usable subscription token is found.
-It works even when another provider's model is selected. Authentication and token renewal use Pi's
-model registry; the extension does not read or write credential files.
+Run `/usage` after signing in with `/login` → OpenAI Codex (legacy).
+The command also checks OpenAI first for compatible subscription tokens, but
+Pi's newer OpenAI → Sign in with ChatGPT flow can issue tokens with encrypted
+auth metadata instead of the account ID required by this internal usage API.
+Those tokens cannot be used by this extension; keep that login for models and
+configure the legacy provider separately for usage checks.
+It works even when another provider's model is selected. Authentication and
+token renewal use Pi's model registry; the extension does not read or write
+credential files.
 
 The command shows the remaining percentage, time until reset and local reset date
 for each window returned by `https://chatgpt.com/backend-api/wham/usage`. Windows

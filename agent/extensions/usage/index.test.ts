@@ -63,6 +63,7 @@ test("uses current OpenAI subscription auth and falls back to legacy without sen
     { current: "throws", legacy, expected: legacy, calls: ["openai", "openai-codex"] },
     { current: "sk-secret", legacy: undefined, expected: undefined, calls: ["openai", "openai-codex"] },
     { current: "malformed", legacy: "malformed", expected: undefined, calls: ["openai", "openai-codex"] },
+    { current: "encrypted-oauth", legacy: undefined, expected: undefined, calls: ["openai", "openai-codex"] },
   ];
   const fetchMock = t.mock.method(globalThis, "fetch", async (_url: string | URL | Request, options?: RequestInit) => {
     assert.equal(options?.headers && (options.headers as Record<string, string>).Authorization, `Bearer ${expected}`);
@@ -79,7 +80,7 @@ test("uses current OpenAI subscription auth and falls back to legacy without sen
           calls.push(provider);
           const token = provider === "openai" ? scenario.current : scenario.legacy;
           if (token === "throws") throw new Error("secret-auth-detail");
-          return token ? { auth: { apiKey: token } } : undefined;
+          return token ? { auth: { apiKey: token }, source: token === "encrypted-oauth" ? "OAuth" : undefined } : undefined;
         },
       },
       ui: { notify(message: string) { messages.push(message); } },
@@ -88,7 +89,9 @@ test("uses current OpenAI subscription auth and falls back to legacy without sen
     await handler("", ctx);
     assert.deepEqual(calls, scenario.calls);
     assert.equal(fetchMock.mock.callCount() - before, expected ? 1 : 0);
-    assert.match(messages[0], expected ? /Codex usage/ : /ChatGPT OAuth authentication is required/);
+    assert.match(messages[0], expected ? /Codex usage/ : scenario.current === "encrypted-oauth"
+      ? /signed in with OpenAI OAuth.*does not expose.*account ID/
+      : /ChatGPT OAuth authentication is required/);
     assert.doesNotMatch(messages.join("\n"), /sk-secret|secret-auth-detail/);
   }
 });
